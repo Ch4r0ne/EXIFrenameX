@@ -3,7 +3,7 @@ import datetime
 import os
 import pymediainfo
 
-#folder_path = r'E:\Temp'
+#folder_path = r'C:\Users\Username\Documents\ImageFolder'
 print(r"Example path: C:\Users\Username\Documents\ImageFolder")
 folder_path = input("Enter the path of the folder containing the image files:")
 
