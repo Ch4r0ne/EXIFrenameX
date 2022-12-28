@@ -3,7 +3,7 @@ import datetime
 import os
 import pymediainfo
 
-folder_path = r'E:\Temps'
+folder_path = r'E:\Temp'
 
 image_formats = ['.jpg', '.jpeg', '.png']
 video_formats = ['.mp4', '.mov']
