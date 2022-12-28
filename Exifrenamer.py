@@ -3,7 +3,7 @@ import datetime
 import os
 import pymediainfo
 
-folder_path = r'E:\Temp_bearbeitung\Australien_Horst\iCloud Photos'
+folder_path = r'E:\Temps'
 
 image_formats = ['.jpg', '.jpeg', '.png']
 video_formats = ['.mp4', '.mov']
