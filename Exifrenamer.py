@@ -3,10 +3,17 @@ import datetime
 import os
 import pymediainfo
 
-#folder_path = r'C:\Users\Username\Documents\ImageFolder'
+# Inform the user about the supported file types and how the new filenames will be generated
+print("This script processes image files in JPG, JPEG or PNG format and video files in MP4 or MOV format.")
+print("The files will be renamed based on their creation or recording date.")
+print("The new filename will be in the following format: YYYY-MM-DD_HH-MM-SS.Filetype")
+print("")
+
+# Ask the user for the path of the folder containing the files
 print(r"Example path: C:\Users\Username\Documents\ImageFolder")
 folder_path = input("Enter the path of the folder containing the image files:")
 
+# Define the supported file types
 image_formats = ['.jpg', '.jpeg', '.png']
 video_formats = ['.mp4', '.mov']
 
