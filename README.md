@@ -10,11 +10,16 @@ This script renames image and video files in a specified folder using their meta
 
 # Usage
 
+    Install Python 3
     Install the required libraries: pip install exifread pymediainfo
-    Run the script: python rename_files.py
+    Run the script: Exifrenamer.py
     When prompted, enter the path to the folder containing the image and video files
 
 # Note
 
 The script only processes image files with the following extensions: '.jpg', '.jpeg', '.png'        
 The script only processes video files with the following extensions: '.mp4', '.mov'
+
+# Goal
+
+The goal of this program is to make it easy for anyone to use and rename image and video files in a specified folder using their metadata information. The program should have a user-friendly interface and support additional file formats.
