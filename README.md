@@ -44,7 +44,7 @@ Follow these steps to use the Exifrenamer script:
 2. Navigate to the script's directory: ```cd path/to/script/directory```
 3. Repack the script: ```pyinstaller Exifrenamer.py```
 4. If necessary, include any external dependencies using the --add-data flag:
-   ```pyinstaller Exifrenamer.py --add-data "exifread;exifread" --add-data "pymediainfo;pymediainfo"```
+   ```pyinstaller ExifRenamer.py --hidden-import pymediainfo --hidden-import exifread```
 
 ## Note
 
