@@ -5,7 +5,6 @@ import pymediainfo
 from typing import List, Dict
 
 # Inform the user about the supported file types and how the new filenames will be generated
-print("This script processes image files in JPG, JPEG or PNG format and video files in MP4 or MOV format.")
 print("The files will be renamed based on their creation or recording date.")
 print("The new filename will be in the following format: YYYY-MM-DD_HH-MM-SS.Filetype")
 print("")
