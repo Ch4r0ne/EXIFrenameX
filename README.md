@@ -17,8 +17,8 @@ This script renames image and video files in a specified folder using their meta
 
 # Note
 
-The script only processes image files with the following extensions: '.jpg', '.jpeg', '.png', '.arw', '.nef', '.tiff', '.webp', '.bmp', '.cr2', '.orf', '.rw2', '.rwl', '.srw'        
-The script only processes video files with the following extensions: '.mp4', '.mov'
+The script only processes image files with the following extensions: '.jpg','.jpeg','.png','.arw','.nef','.tiff','.webp','.bmp','.cr2','.orf','.rw2','.rwl','.srw'        
+The script only processes video files with the following extensions: '.mp4','.mov'
 
 # Goal
 
