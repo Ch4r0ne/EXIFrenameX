@@ -37,6 +37,14 @@ Follow these steps to use the Exifrenamer script:
     Install the required libraries: pip install exifread pymediainfo
     Run the script: Exifrenamer.py
     When prompted, enter the path to the folder containing the image and video files
+    
+## How to repack the .py script
+
+1. Install PyInstaller: ```pip install pyinstaller```
+2. Navigate to the script's directory: ```cd path/to/script/directory```
+3. Repack the script: ```pyinstaller Exifrenamer.py```
+4. If necessary, include any external dependencies using the --add-data flag:
+   ```pyinstaller Exifrenamer.py --add-data "exifread;exifread" --add-data "pymediainfo;pymediainfo"```
 
 ## Note
 
