@@ -178,3 +178,5 @@ for file in files:
 # Print the results
 print(f"Renamed {renamed_count} files.")
 print(f"Encountered {not_renamed_count} errors while renaming files.")
+
+input("Press the Enter key to close the window")
