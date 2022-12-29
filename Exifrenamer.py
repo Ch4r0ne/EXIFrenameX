@@ -176,8 +176,8 @@ for file in files:
                 print(f"Error renaming {file} to {metadata_value}{extension}")
 
 # Print the results
-print("")
-print(f"{renamed_count} files could be renamed successfully")
-print(f"{not_renamed_count} files could not be renamed because the required metadata is not available")
-print("")
+print(f"")
+print(f"Error {not_renamed_count} files could not be renamed because the required metadata is not available")
+print(f"Success {renamed_count} files could be renamed successfully")
+print(f"")
 input("Press the Enter key to close the window")
