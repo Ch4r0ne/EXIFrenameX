@@ -98,7 +98,7 @@ files = os.listdir(folder_path)
 # Iterate through the list of files
 for file in files:
     # Check if the file is a video file (based on its file extension)
-    if file.endswith(".mov") or file.endswith(".mp4"): # Replace ".MOV" and ".MP4" with the desired file extension(s)
+    if file.endswith(".mov") or file.endswith(".mp4") or file.endswith(".MP4") or file.endswith(".MOV"): # Replace ".MOV" and ".MP4" with the desired file extension(s)
         # Open the video file
         file_path = os.path.join(folder_path, file)
         media_info = pymediainfo.MediaInfo.parse(file_path)
