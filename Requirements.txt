@@ -1,2 +1,0 @@
-pip install pymediainfo
-pip install exifread
