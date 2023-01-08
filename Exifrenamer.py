@@ -142,6 +142,20 @@ for file in files:
                     metadata_name = "recorded_date"
                     metadata_found = True
                     break
+                    
+        # If the "comapplequicktimecreationdate" and "recorded_date" metadata was not found...
+        if not metadata_found:
+            # ...look for the "encoded_date" metadata
+            for track in media_info.tracks:
+                encoded_date = track.to_data().get("encoded_date", None)
+                if encoded_date is not None:
+                    # Remove the timezone information from the encoded_date value
+                    encoded_date = datetime.datetime.strptime(encoded_date, "UTC %Y-%m-%d %H:%M:%S")
+                    # Format the encoded_date value in the desired format
+                    metadata_value = encoded_date.strftime("%Y-%m-%d_%H-%M-%S")
+                    metadata_name = "encoded_date"
+                    metadata_found = True
+                    break
 
         # If the metadata was not found...
         if not metadata_found:
