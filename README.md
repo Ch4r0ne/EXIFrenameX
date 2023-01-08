@@ -5,23 +5,23 @@ This script allows you to easily rename image and video files in a specified fol
 
 ## Features
 
-  - Renames image files using the 'EXIF DateTimeOriginal' field
-  - Renames video files using the 'recorded_date' field for MP4 files or the 'comapplequicktimecreationdate' field for MOV files
-  - Falls back to the 'recorded_date' field if the 'comapplequicktimecreationdate' field is not present for MOV files
+  - Renames image files using the ```'EXIF DateTimeOriginal'``` field
+  - Renames video files using the ```'recorded_date'``` field for MP4 files or the ```'comapplequicktimecreationdate'``` field for MOV files
+  - Falls back to the ```'recorded_date'``` and ```'encoded_date'``` field if the ```'comapplequicktimecreationdate'``` field is not present for MOV files
   - Handles any errors that may occur while processing the files
-  - Supports various image file formats including .jpg, .jpeg, .png, .arw, .nef, .tiff, .webp, .bmp, .cr2, .orf, .rw2, .rwl, and .srw
-  - Supports MP4 and MOV video file formats
+  - Supports various image file formats including ```.jpg, .jpeg, .png, .arw, .nef, .tiff, .webp, .bmp, .cr2, .orf, .rw2, .rwl, .srw```
+  - Supports ```.mp4 and .mov``` video file formats
   
 ## Using the Exifrenamer
 
 Follow these steps to use the Exifrenamer script:
 
-    1. Download the Exifrenamer.zip file from the "Releases" section of the GitHub repository.
-    2. Unpack the .zip file to access the Exifrenamer folder.
-    3. Navigate to the Exifrenamer folder and double-click on the Exifrenamer.exe file to launch the script.
-    4. When prompted, enter the path to the folder containing the image and video files you want to rename.
-    5. The script will process the files and attempt to rename them using the metadata information.
-    6. Upon completion, the script will display the number of files successfully renamed and the number of files not renamed.
+1. Download the ```Exifrenamer.zip``` file from the ```"Releases"``` section of the GitHub repository.
+2. Unpack the ```.zip``` file to access the Exifrenamer folder.
+3. Navigate to the ```Exifrenamer folder``` and double-click on the ```Exifrenamer.exe``` file to launch the script.
+4. When prompted, ```enter the path to the folder``` containing the image and video files you want to rename.
+5. The script will process the files and attempt to rename them using the metadata information.
+6. Upon completion, the script will display the number of files successfully renamed and the number of files not renamed.
 
 
 # Development requirements
