@@ -1,6 +1,6 @@
 # Image and Video File Renamer
 
-This script allows you to easily rename image and video files in a specified folder using their metadata information. It is a quick and convenient way to organize your media files by their creation or recording date.
+This script allows you to easily rename image and video files in a specified folder using their metadata information. It is a quick and convenient way to organize your media files by their recording date.
 
 
 ## Features
@@ -9,8 +9,8 @@ This script allows you to easily rename image and video files in a specified fol
   - Renames video files using the ```'recorded_date'``` field for MP4 files or the ```'comapplequicktimecreationdate'``` field for MOV files
   - Falls back to the ```'recorded_date'``` and ```'encoded_date'``` field if the ```'comapplequicktimecreationdate'``` field is not present for MOV files
   - Handles any errors that may occur while processing the files
-  - Supports various image file formats including ```.jpg, .jpeg, .png, .arw, .nef, .tiff, .webp, .bmp, .cr2, .orf, .rw2, .rwl, .srw```
-  - Supports ```.mp4 and .mov``` video file formats
+  - Supports various image file formats including .jpg, .jpeg, .png, .arw, .nef, .tiff, .webp, .bmp, .cr2, .orf, .rw2, .rwl, .srw
+  - Supports .mp4 and .mov video file formats
   
 ## Using the Exifrenamer
 
@@ -45,8 +45,3 @@ Follow these steps to use the Exifrenamer script:
 3. Repack the script: ```pyinstaller Exifrenamer.py```
 4. If necessary, include any external dependencies using the --add-data flag:
    ```pyinstaller ExifRenamer.py --hidden-import pymediainfo --hidden-import exifread```
-
-## Note
-
-The script only processes image files with the following extensions: '.jpg','.jpeg','.png','.arw','.nef','.tiff','.webp','.bmp','.cr2','.orf','.rw2','.rwl','.srw'        
-The script only processes video files with the following extensions: '.mp4','.mov'
