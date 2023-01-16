@@ -38,3 +38,4 @@ You can install these libraries by running the following command in your command
 - The program will check if the new name already exists and add an incremental number to avoid overwriting files with the same name.
 - The program will not rename files that do not have exif or media metadata. These files will be listed in the output.
 - The program is original in the repository EXIFrenameX.py. Additionally, I have packed the script into a .exe with pyinstaller and released it as a release.
+- The command `pyinstaller EXIFrenameX.py --hidden-import tqdm --hidden-import pymediainfo --hidden-import exifread` is used to repack the script EXIFrenameX.py into a standalone executable using the PyInstaller library
