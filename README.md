@@ -1,47 +1,40 @@
-# Image and Video File Renamer
+# EXIFrenameX
 
 This script allows you to easily rename image and video files in a specified folder using their metadata information. It is a quick and convenient way to organize your media files by their recording date.
 
+### How to use
+1. Download the script (EXIFrenameX.py) or the release from the repository
+2. Run the script or the executable (EXIFrenameX.exe)
+3. Enter the folder path where the files to be renamed are located
+4. The program will iterate over all files in the folder and rename them according to their recording date
 
-## Features
+### Requirements
+- Python 3.x
+- exifread
+- pymediainfo
+- tqdm (optional, but recommended for a better user experience)
 
-  - Renames image files using the ```'EXIF DateTimeOriginal'``` field
-  - Renames video files using the ```'recorded_date'``` field for MP4 files or the ```'comapplequicktimecreationdate'``` field for MOV files
-  - Falls back to the ```'recorded_date'``` and ```'encoded_date'``` field if the ```'comapplequicktimecreationdate'``` field is not present for MOV files
-  - Handles any errors that may occur while processing the files
-  - Supports various image file formats including .jpg, .jpeg, .png, .arw, .nef, .tiff, .webp, .bmp, .cr2, .orf, .rw2, .rwl, .srw
-  - Supports .mp4 and .mov video file formats
-  
-## Using the Exifrenamer
+You can install these libraries by running the following command in your command prompt:
 
-Follow these steps to use the Exifrenamer script:
+    pip install exifread pymediainfo tqdm
 
-1. Download the ```Exifrenamer.zip``` file from the ```"Releases"``` section of the GitHub repository.
-2. Unpack the ```.zip``` file to access the Exifrenamer folder.
-3. Navigate to the ```Exifrenamer folder``` and double-click on the ```Exifrenamer.exe``` file to launch the script.
-4. When prompted, ```enter the path to the folder``` containing the image and video files you want to rename.
-5. The script will process the files and attempt to rename them using the metadata information.
-6. Upon completion, the script will display the number of files successfully renamed and the number of files not renamed.
+### Supported file types
+ JPEG, JPG,
+ PNG,
+ ARW,
+ NEF,
+ TIFF,
+ WEBP,
+ BMP,
+ CR2,
+ ORF,
+ RW2,
+ RWL,
+ SRW,
+ MOV,
+ MP4
 
-
-# Development requirements
-## Requirements
-
-    Python 3
-    exifread library
-    pymediainfo library
-
-## Usage
-
-    Install Python 3
-    Install the required libraries: pip install exifread pymediainfo
-    Run the script: Exifrenamer.py
-    When prompted, enter the path to the folder containing the image and video files
-    
-## How to repack the .py script
-
-1. Install PyInstaller: ```pip install pyinstaller```
-2. Navigate to the script's directory: ```cd path/to/script/directory```
-3. Repack the script: ```pyinstaller Exifrenamer.py```
-4. If necessary, include any external dependencies using the --add-data flag:
-   ```pyinstaller ExifRenamer.py --hidden-import pymediainfo --hidden-import exifread```
+### Note
+- The program will check if the new name already exists and add an incremental number to avoid overwriting files with the same name.
+- The program will not rename files that do not have exif or media metadata. These files will be listed in the output.
+- The program is original in the repository EXIFrenameX.py. Additionally, I have packed the script into a .exe with pyinstaller and released it as a release.
