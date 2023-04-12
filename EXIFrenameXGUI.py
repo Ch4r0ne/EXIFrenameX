@@ -2,6 +2,7 @@ import os
 import exifread
 import pymediainfo
 import datetime
+import threading 
 from tkinter import filedialog
 from tkinter import ttk
 from tkinter import *
@@ -55,12 +56,12 @@ def start_script():
     output.delete(1.0, END)
 
     folder = folder_path.get()
-    output.insert(INSERT, f"Verarbeite Dateien im Ordner: {folder}\n")
+    output.insert(INSERT, f"Process files in the folder: {folder}\n")
 
     renamed_files = []
     files_without_metadata = []
     
-    for filename in tqdm(os.listdir(folder), desc="Dateien umbenennen", unit="file", file=TqdmOutput()):
+    for filename in tqdm(os.listdir(folder), desc="Rename files", unit="file", file=TqdmOutput()):
         file_path = os.path.join(folder, filename)
         if os.path.isfile(file_path):
             extension = os.path.splitext(file_path)[1].lower()
@@ -89,43 +90,96 @@ def start_script():
                     renamed_files.append(new_name)
             else:
                 files_without_metadata.append(filename)
+    
 
 def browse_folder():
     global folder_path
     folder_path.set(filedialog.askdirectory())
 
+def update_file_preview():
+    def generate_preview():
+        preview.config(state=NORMAL)
+        preview.delete(1.0, END)
+        folder = folder_path.get()
+        counter = 0
+        if os.path.isdir(folder):
+            for filename in os.listdir(folder):
+                if counter >= 100:
+                    break
+                file_path = os.path.join(folder, filename)
+                if os.path.isfile(file_path):
+                    extension = os.path.splitext(file_path)[1].lower()
+                    if extension in ['.jpg', '.jpeg', '.png', '.arw', '.nef', '.tiff', '.webp', '.bmp', '.cr2', '.orf', '.rw2', '.rwl', '.srw']:
+                        datetime_obj = get_exif_date(file_path)
+                    elif extension in ['.mov', '.mp4']:
+                        datetime_obj = get_media_date(file_path)
+                    else:
+                        datetime_obj = None
+
+                    if datetime_obj is not None:
+                        new_name = datetime_obj.strftime(selected_format.get()) + extension
+                    else:
+                        new_name = filename
+                    preview.insert(INSERT, new_name + "\n")
+                    counter += 1
+        preview.config(state=DISABLED)
+
+    preview_thread = threading.Thread(target=generate_preview)
+    preview_thread.start()
+
+BG_COLOR = "#303030"
+FG_COLOR = "#F0F0F0"
+BUTTON_COLOR = "#4a86e8"
+
 root = Tk()
 root.title("EXIFrenameX")
-root.geometry("800x400")
-root.configure(bg='#D3D3D3')
+root.geometry("1100x600")
+root.configure(bg=BG_COLOR)
 
 folder_path = StringVar()
 selected_format = StringVar()
 
-left_frame = Frame(root, bg='#D3D3D3')
+left_frame = Frame(root, bg=BG_COLOR)
 left_frame.pack(side=LEFT, fill=BOTH, expand=1)
 
-# Change text colours and background colours accordingly
-Label(left_frame, text="Ordner auswählen:", bg='#D3D3D3', fg='#000000').pack(anchor=NW, padx=5, pady=5)
-Entry(left_frame, textvariable=folder_path).pack(fill=X, padx=5, pady=5)
-Button(left_frame, text="Durchsuchen", command=browse_folder, bg='#A9A9A9', fg='#000000').pack(fill=X, padx=5, pady=5)
+Label(left_frame, text="Select folder:", bg=BG_COLOR, fg=FG_COLOR).pack(anchor=NW, padx=10, pady=10)
+Entry(left_frame, textvariable=folder_path).pack(fill=X, padx=10, pady=5)
+Button(left_frame, text="Browse", command=lambda: [browse_folder(), update_file_preview()], bg=BUTTON_COLOR, fg=FG_COLOR).pack(fill=X, padx=10, pady=5)
 
-Label(left_frame, text="Format auswählen:", bg='#D3D3D3', fg='#000000').pack(anchor=NW, padx=5, pady=5)
+selected_format = StringVar(value="%Y-%m-%d_%H-%M-%S")
+
+Label(left_frame, text="Select format:", bg=BG_COLOR, fg=FG_COLOR).pack(anchor=NW, padx=10, pady=10)
 format_options = ["%Y-%m-%d_%H-%M-%S", "%Y%m%d_%H%M%S", "%d-%m-%Y_%Hh%Mm%Ss"]
 dropdown = ttk.Combobox(left_frame, values=format_options, textvariable=selected_format, state="normal")
-dropdown.pack(fill=X, padx=5, pady=5)
+dropdown.pack(fill=X, padx=10, pady=5)
 
-Button(left_frame, text="Skript starten", command=start_script, bg='#A9A9A9', fg='#000000').pack(fill=X, padx=5, pady=5)
+selected_format.trace_add("write", lambda *args: update_file_preview())
 
-right_frame = Frame(root, bg='#D3D3D3')
-right_frame.pack(side=RIGHT, fill=BOTH, expand=1)
+Button(left_frame, text="Start script", command=start_script, bg=BUTTON_COLOR, fg=FG_COLOR).pack(fill=X, padx=10, pady=5)
 
-Label(right_frame, text="CMD-Ausgabe:", bg='#D3D3D3', fg='#000000').pack(anchor=NW, padx=5, pady=5)
+right_frame = Frame(root, bg=BG_COLOR)
+right_frame.pack(side=LEFT, fill=BOTH, expand=1)
 
-output = Text(right_frame, wrap=WORD, state=DISABLED, bg='#A9A9A9', fg='#000000')
-output.pack(fill=BOTH, expand=1, padx=5, pady=5)
-scrollbar = Scrollbar(right_frame, command=output.yview)
-scrollbar.pack(side=RIGHT, fill=Y)
-output.config(yscrollcommand=scrollbar.set)
+Label(right_frame, text="Processing output", bg=BG_COLOR, fg=FG_COLOR).grid(row=0, column=0, sticky=W, padx=10, pady=10)
+
+output = Text(right_frame, wrap=WORD, state=DISABLED, bg=BG_COLOR, fg=FG_COLOR)
+output.grid(row=1, column=0, sticky=N+S+E+W, padx=10, pady=5)
+
+right_frame.grid_rowconfigure(1, weight=1)
+right_frame.grid_columnconfigure(0, weight=1)
+
+preview_frame = Frame(root, bg=BG_COLOR)
+preview_frame.pack(side=LEFT, fill=BOTH, expand=1)
+
+Label(preview_frame, text="File preview:", bg=BG_COLOR, fg=FG_COLOR).grid(row=0, column=0, sticky=W, padx=10, pady=10)
+
+preview = Text(preview_frame, wrap=WORD, state=DISABLED, bg=BG_COLOR, fg=FG_COLOR)
+preview.grid(row=1, column=0, sticky=N+S+E+W, padx=10, pady=5)
+preview_scrollbar = Scrollbar(preview_frame, command=preview.yview)
+preview_scrollbar.grid(row=1, column=1, sticky=N+S, padx=5, pady=5)
+preview.config(yscrollcommand=preview_scrollbar.set)
+
+preview_frame.grid_rowconfigure(1, weight=2)
+preview_frame.grid_columnconfigure(0, weight=2)
 
 root.mainloop()
