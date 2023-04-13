@@ -111,8 +111,6 @@ def start_script():
                 output.config(state=DISABLED)
                 root.update_idletasks()
 
-    
-
 def browse_folder():
     global folder_path
     folder_path.set(filedialog.askdirectory())
@@ -148,46 +146,74 @@ def update_file_preview():
     preview_thread = threading.Thread(target=generate_preview)
     preview_thread.start()
 
+def show_format_hints():
+    hints_window = Toplevel(root)
+    hints_window.geometry("300x350")
+    hints_window.configure(bg=BG_COLOR)
+    hints_window.title("Format Hints")
+    
+    hints_text = """Format Placeholder Meanings:
+
+    - Format 1: %Y-%m-%d_%H-%M-%S
+    - Example: 2023-04-13_14-30-15
+    
+    - Format 2: %Y%m%d_%H%M%S
+    - Example: 20230413_143015
+    
+    - Format 3: %d-%m-%Y_%Hh%Mm%Ss
+    - Example: 13-04-2023_14h30m15s
+    
+    Placeholders:
+    %Y - 4-digit year (e.g., 2023)
+    %m - 2-digit month with leading zero (e.g., 04)
+    %d - 2-digit day with leading zero (e.g., 13)
+    %H - 2-digit hour with leading zero (e.g., 14)
+    %M - 2-digit minute with leading zero (e.g., 30)
+    %S - 2-digit second with leading zero (e.g., 15)
+    """
+    
+    hints_label = Label(hints_window, text=hints_text, bg=BG_COLOR, fg=FG_COLOR, justify=LEFT)
+    hints_label.pack(padx=10, pady=10)
+
 BG_COLOR = "#303030"
 FG_COLOR = "#F0F0F0"
 BUTTON_COLOR = "#4a86e8"
 
 root = Tk()
 root.title("EXIFrenameX")
-root.geometry("1100x600")
+root.geometry("1050x550")
 root.configure(bg=BG_COLOR)
 
 folder_path = StringVar()
 selected_format = StringVar()
 
 left_frame = Frame(root, bg=BG_COLOR)
-left_frame.pack(side=LEFT, fill=BOTH, expand=1)
+left_frame.pack(side=LEFT, fill=Y, padx=10)
 
-Label(left_frame, text="Select folder:", bg=BG_COLOR, fg=FG_COLOR).pack(anchor=NW, padx=10, pady=10)
-Entry(left_frame, textvariable=folder_path).pack(fill=X, padx=10, pady=5)
-Button(left_frame, text="Browse", command=lambda: [browse_folder(), update_file_preview()], bg=BUTTON_COLOR, fg=FG_COLOR).pack(fill=X, padx=10, pady=5)
+Label(left_frame, text="Select folder:", bg=BG_COLOR, fg=FG_COLOR).grid(row=0, column=0, padx=10, pady=10, sticky=W)
+
+Entry(left_frame, textvariable=folder_path).grid(row=1, column=0, padx=10, pady=5, sticky=W+E)
+Button(left_frame, text="Browse", command=lambda: [browse_folder(), update_file_preview()], bg=BUTTON_COLOR, fg=FG_COLOR, width=10).grid(row=2, column=0, padx=10, pady=5, sticky=W)
 
 selected_format = StringVar(value="%Y-%m-%d_%H-%M-%S")
 
-Label(left_frame, text="Select format:", bg=BG_COLOR, fg=FG_COLOR).pack(anchor=NW, padx=10, pady=10)
+Label(left_frame, text="Select format:", bg=BG_COLOR, fg=FG_COLOR).grid(row=3, column=0, padx=8, pady=8, sticky=W)
 format_options = ["%Y-%m-%d_%H-%M-%S", "%Y%m%d_%H%M%S", "%d-%m-%Y_%Hh%Mm%Ss"]
-dropdown = ttk.Combobox(left_frame, values=format_options, textvariable=selected_format, state="normal")
-dropdown.pack(fill=X, padx=10, pady=5)
+dropdown = ttk.Combobox(left_frame, values=format_options, textvariable=selected_format, state="normal", width=18)
+dropdown.grid(row=4, column=0, padx=10, pady=5, sticky=W+E)
 
 selected_format.trace_add("write", lambda *args: update_file_preview())
 
-Button(left_frame, text="Rename All", command=start_script, bg=BUTTON_COLOR, fg=FG_COLOR).pack(fill=X, padx=10, pady=5)
+Button(left_frame, text="Format Hints", command=show_format_hints, bg=BUTTON_COLOR, fg=FG_COLOR, width=10).grid(row=5, column=0, padx=8, pady=5, sticky=W)
 
-right_frame = Frame(root, bg=BG_COLOR)
-right_frame.pack(side=LEFT, fill=BOTH, expand=1)
+Button(left_frame, text="Rename All", command=start_script, bg=BUTTON_COLOR, fg=FG_COLOR, width=18).grid(row=6, column=0, padx=10, pady=5, sticky='EW')
 
-Label(right_frame, text="Processing output", bg=BG_COLOR, fg=FG_COLOR).grid(row=0, column=0, sticky=W, padx=10, pady=10)
+Label(left_frame, text="Processing output", bg=BG_COLOR, fg=FG_COLOR).grid(row=7, column=0, padx=10, pady=10, sticky=W)
+output = Text(left_frame, wrap=WORD, state=DISABLED, bg=BG_COLOR, fg=FG_COLOR)
+output.grid(row=8, column=0, padx=10, pady=5, sticky=W+E+N+S)
 
-output = Text(right_frame, wrap=WORD, state=DISABLED, bg=BG_COLOR, fg=FG_COLOR)
-output.grid(row=1, column=0, sticky=N+S+E+W, padx=10, pady=5)
-
-right_frame.grid_rowconfigure(1, weight=1)
-right_frame.grid_columnconfigure(0, weight=1)
+left_frame.grid_rowconfigure(8, weight=1)
+left_frame.grid_columnconfigure(0, weight=1)
 
 preview_frame = Frame(root, bg=BG_COLOR)
 preview_frame.pack(side=LEFT, fill=BOTH, expand=1)
