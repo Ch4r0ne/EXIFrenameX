@@ -218,7 +218,7 @@ left_frame.grid_columnconfigure(0, weight=1)
 preview_frame = Frame(root, bg=BG_COLOR)
 preview_frame.pack(side=LEFT, fill=BOTH, expand=1)
 
-Label(preview_frame, text="File preview:", bg=BG_COLOR, fg=FG_COLOR).grid(row=0, column=0, sticky=W, padx=10, pady=10)
+Label(preview_frame, text="Preview of the first 100 files:", bg=BG_COLOR, fg=FG_COLOR).grid(row=0, column=0, sticky=W, padx=10, pady=10)
 
 preview = Text(preview_frame, wrap=WORD, state=DISABLED, bg=BG_COLOR, fg=FG_COLOR)
 preview.grid(row=1, column=0, sticky=N+S+E+W, padx=10, pady=5)
