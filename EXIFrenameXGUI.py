@@ -6,19 +6,29 @@ import threading
 from tkinter import filedialog
 from tkinter import ttk
 from tkinter import *
-from tqdm import tqdm
 
-class TqdmOutput:
-    def write(self, s):
-        if s.rstrip() != "":
-            output.config(state=NORMAL)
-            output.insert(INSERT, s)
-            output.see(END)
-            output.config(state=DISABLED)
-            root.update_idletasks()
+class ProgressUpdater:
+    def __init__(self, total, prefix="", suffix="", decimals=1, length=100, fill='█', print_end="\r"):
+        self.total = total
+        self.prefix = prefix
+        self.suffix = suffix
+        self.decimals = decimals
+        self.length = length
+        self.fill = fill
+        self.print_end = print_end
+        self.progress = 0
 
-    def flush(self):
-        pass
+    def update(self, progress):
+        self.progress = progress
+        percent = ("{0:." + str(self.decimals) + "f}").format(100 * (self.progress / float(self.total)))
+        filled_length = int(self.length * self.progress // self.total)
+        bar = self.fill * filled_length + '-' * (self.length - filled_length)
+        output.config(state=NORMAL)
+        output.delete(1.0, END)
+        output.insert(INSERT, f'{self.prefix} |{bar}| {percent}% {self.suffix} - Processed files: {self.progress}/{self.total}\n')
+        output.see(END)
+        output.config(state=DISABLED)
+        root.update_idletasks()
 
 # function to extract date from exif tags of .jpeg, .jpg, .png, ... files
 def get_exif_date(file_path):
@@ -61,7 +71,12 @@ def start_script():
     renamed_files = []
     files_without_metadata = []
     
-    for filename in tqdm(os.listdir(folder), desc="Rename files", unit="file", file=TqdmOutput()):
+    files = os.listdir(folder)
+    progress_updater = ProgressUpdater(total=len(files), prefix='Rename files:', suffix='', length=50)
+    for i, filename in enumerate(files):
+        progress_updater.update(i+1)
+
+
         file_path = os.path.join(folder, filename)
         if os.path.isfile(file_path):
             extension = os.path.splitext(file_path)[1].lower()
@@ -90,6 +105,12 @@ def start_script():
                     renamed_files.append(new_name)
             else:
                 files_without_metadata.append(filename)
+                output.config(state=NORMAL)
+                output.insert(INSERT, f"File '{filename}' could not be renamed (no metadata found).\n")
+                output.see(END)
+                output.config(state=DISABLED)
+                root.update_idletasks()
+
     
 
 def browse_folder():
@@ -155,7 +176,7 @@ dropdown.pack(fill=X, padx=10, pady=5)
 
 selected_format.trace_add("write", lambda *args: update_file_preview())
 
-Button(left_frame, text="Start script", command=start_script, bg=BUTTON_COLOR, fg=FG_COLOR).pack(fill=X, padx=10, pady=5)
+Button(left_frame, text="Rename All", command=start_script, bg=BUTTON_COLOR, fg=FG_COLOR).pack(fill=X, padx=10, pady=5)
 
 right_frame = Frame(root, bg=BG_COLOR)
 right_frame.pack(side=LEFT, fill=BOTH, expand=1)
