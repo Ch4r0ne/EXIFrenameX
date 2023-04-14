@@ -2,13 +2,270 @@ import os
 import exifread
 import pymediainfo
 import datetime
-import threading 
-from tkinter import filedialog
-from tkinter import ttk
-from tkinter import *
+import tkinter
+import tkinter.filedialog
+import tkinter.messagebox
+import customtkinter
+import tkinter.messagebox as messagebox
+from tqdm import tqdm
+from io import StringIO
+
+customtkinter.set_appearance_mode("System")  # Modes: "System" (standard), "Dark", "Light"
+customtkinter.set_default_color_theme("blue")  # Themes: "blue" (standard), "green", "dark-blue"
+
+class App(customtkinter.CTk):
+    def __init__(self):
+        super().__init__()
+
+        # configure window
+        self.title("EXIFrenameX")
+        self.geometry(f"{1100}x{580}")
+
+        # configure grid layout (4x4)
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_columnconfigure((2, 3), weight=0)
+        self.grid_rowconfigure((0, 1, 2), weight=1)
+
+        # create sidebar frame with widgets
+        self.sidebar_frame = customtkinter.CTkFrame(self, width=140, corner_radius=0)
+        self.sidebar_frame.grid(row=0, column=0, rowspan=4, sticky="nsew")
+        self.sidebar_frame.grid_rowconfigure(4, weight=1)
+        self.logo_label = customtkinter.CTkLabel(self.sidebar_frame, text="EXIFrenameX", font=customtkinter.CTkFont(size=20, weight="bold"))
+        self.logo_label.grid(row=0, column=0, padx=20, pady=(20, 10))
+        self.sidebar_button_1 = customtkinter.CTkButton(self.sidebar_frame, command=self.sidebar_button_event)
+        self.sidebar_button_1.grid(row=1, column=0, padx=20, pady=10)
+        self.sidebar_button_1.configure(text="Rename Files", command=self.on_sidebar_button_1_click)
+        self.appearance_mode_optionemenu = customtkinter.CTkOptionMenu(self.sidebar_frame, values=["Light", "Dark", "System"],
+                                                                       command=self.change_appearance_mode_event)
+        self.appearance_mode_optionemenu.grid(row=7, column=0, padx=20, pady=(10, 10))
+        self.scaling_optionemenu = customtkinter.CTkOptionMenu(self.sidebar_frame, values=["80%", "90%", "100%", "110%", "120%"],
+                                                               command=self.change_scaling_event)
+        self.scaling_optionemenu.grid(row=8, column=0, padx=20, pady=(10, 20))
+
+        # create main entry and button
+        self.entry = customtkinter.CTkEntry(self, placeholder_text="Brows File Pfad")
+        self.entry.grid(row=3, column=1, columnspan=2, padx=(20, 0), pady=(20, 20), sticky="nsew")
+
+        self.main_button_1 = customtkinter.CTkButton(master=self, fg_color="transparent", border_width=2, text_color=("gray10", "#DCE4EE"), text="Browse", command=self.browse_directory)
+        self.main_button_1.grid(row=3, column=3, padx=(20, 20), pady=(20, 20), sticky="nsew")
+
+        # create textbox_1 for Format Info
+        self.textbox_1 = customtkinter.CTkTextbox(self, width=250)
+        self.textbox_1.grid(row=0, column=1, padx=(20, 0), pady=(20, 0), sticky="nsew")
+
+        # create frame for format selection
+        self.format_frame = customtkinter.CTkFrame(self, width=250)
+        self.format_frame.grid(row=0, column=2, padx=(20, 0), pady=(20, 0), sticky="nsew")
+
+        self.select_format_label = customtkinter.CTkLabel(self.format_frame, text="Select Format")
+        self.select_format_label.grid(row=0, column=0, padx=20, pady=(10, 10), sticky="w")
+
+        self.combobox_1 = customtkinter.CTkComboBox(self.format_frame, values=["%Y-%m-%d_%H-%M-%S", "%Y%m%d_%H%M%S", "%d-%m-%Y_%Hh%Mm%Ss"], width=240)
+        self.combobox_1.grid(row=1, column=0, padx=20, pady=(10, 10))
+        #self.combobox_1.bind("<<ComboboxSelected>>", lambda _: self.update_preview())
+
+        self.entry_2 = customtkinter.CTkEntry(self.format_frame, width=240, placeholder_text="Enter Prefix here")
+        self.entry_2.grid(row=2, column=0, padx=20, pady=(10, 10))
+        self.entry_2.bind("<KeyRelease>", lambda _: self.update_preview())
+
+        self.entry_3 = customtkinter.CTkEntry(self.format_frame, width=240, placeholder_text="Enter Suffix here")
+        self.entry_3.grid(row=3, column=0, padx=20, pady=(10, 10))
+        self.entry_3.bind("<KeyRelease>", lambda _: self.update_preview())
+
+        self.update_button = customtkinter.CTkButton(self.format_frame, text="Update Preview", command=self.update_preview)
+        self.update_button.grid(row=4, column=0, padx=20, pady=(10, 10), sticky="nsew")
+
+        # create radiobutton frame
+        self.radiobutton_frame = customtkinter.CTkFrame(self)
+        self.radiobutton_frame.grid(row=0, column=3, padx=(20, 20), pady=(20, 0), sticky="nsew")
+        self.radio_var = tkinter.IntVar(value=0)
+        self.radio_var.trace_add('write', lambda *args, **kwargs: self.update_preview())
+        self.label_radio_group = customtkinter.CTkLabel(master=self.radiobutton_frame, text="Select merge:")
+        self.label_radio_group.grid(row=0, column=2, columnspan=1, padx=10, pady=10, sticky="w")
+        self.radio_button_1 = customtkinter.CTkRadioButton(master=self.radiobutton_frame, variable=self.radio_var, value=0)
+        self.radio_button_1.grid(row=1, column=2, pady=10, padx=20, sticky="w")
+        self.radio_button_2 = customtkinter.CTkRadioButton(master=self.radiobutton_frame, variable=self.radio_var, value=1)
+        self.radio_button_2.grid(row=2, column=2, pady=10, padx=20, sticky="w")
+        self.radio_button_3 = customtkinter.CTkRadioButton(master=self.radiobutton_frame, variable=self.radio_var, value=2)
+        self.radio_button_3.grid(row=3, column=2, pady=10, padx=20, sticky="w")
+        self.radio_button_4 = customtkinter.CTkRadioButton(master=self.radiobutton_frame, variable=self.radio_var, value=3)
+        self.radio_button_4.grid(row=4, column=2, pady=10, padx=20, sticky="w")
+
+        # create textbox_2 and progressbar frame
+        self.textbox_2 = customtkinter.CTkTextbox(self, width=250)
+        self.textbox_2.grid(row=1, column=1, padx=(20, 0), pady=(20, 0), sticky="nsew")
+
+        # create textbox_3 File Preview
+        self.textbox_3 = customtkinter.CTkTextbox(self, width=250)
+        self.textbox_3.grid(row=1, column=2, columnspan=2, padx=(20, 20), pady=(20, 0), sticky="nsew")
+
+        # set default values
+        self.sidebar_button_1.configure(text="Rename Files")
+        self.radio_button_1.configure(text="New")
+        self.radio_button_1.select()
+        self.radio_button_2.configure(text="New + Orginal")
+        self.radio_button_3.configure(text="Orginal")
+        self.radio_button_4.configure(text="Orginal + New")
+        self.appearance_mode_optionemenu.set("Dark")
+        self.scaling_optionemenu.set("100%")
+        self.textbox_1.insert("0.0", "Format explanation\n\n" + "- Format 1: %Y-%m-%d_%H-%M-%S\n" + "- Example: 2023-04-13_14-30-15\n" + "\n" + "- Format 2: %Y%m%d_%H%M%S\n" + "- Example: 20230413_143015\n" + "\n" + "- Format 3: %d-%m-%Y_%Hh%Mm%Ss\n" + "- Example: 13-04-2023_14h30m15s\n\n" + "Placeholders:\n\n" + "%Y - 4-digit year (e.g., 2023)\n" + "%m - 2-digit month with leading zero (e.g., 04)\n" + "%d - 2-digit day with leading zero (e.g., 13)\n" + "%H - 2-digit hour with leading zero (e.g., 14)\n" + "%M - 2-digit minute with leading zero (e.g., 30)\n" + "%S - 2-digit second with leading zero (e.g., 15)")
+        self.textbox_2.insert("0.0", "File processing: \n")
+        self.textbox_3.insert("0.0", "Preview of Files (0-49):\n\n")
+
+    # function to extract date from exif tags of .jpeg, .jpg, .png, ... files
+    def get_exif_date(self, file_path):
+        with open(file_path, 'rb') as f:
+            tags = exifread.process_file(f)
+            if 'EXIF DateTimeOriginal' in tags:
+                date_str = str(tags['EXIF DateTimeOriginal'])
+                return datetime.datetime.strptime(date_str, '%Y:%m:%d %H:%M:%S')
+            elif 'EXIF DateTime' in tags:
+                date_str = str(tags['EXIF DateTime'])
+                return datetime.datetime.strptime(date_str, '%Y:%m:%d %H:%M:%S')
+            else:
+                return None
+
+    # function to extract date from metadata of .mov and .mp4 files
+    def get_media_date(self, file_path):
+        media_info = pymediainfo.MediaInfo.parse(file_path)
+        for track in media_info.tracks:
+                if 'comapplequicktimecreationdate' in track.to_data():
+                    date_str = track.to_data()['comapplequicktimecreationdate']
+                    date_str = date_str.replace('T', ' ').split('+')[0]
+                    return datetime.datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
+                elif 'recorded_date' in track.to_data():
+                    date_str = track.to_data()['recorded_date']
+                    date_str = date_str.replace('T', ' ').split('+')[0]
+                    return datetime.datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
+                elif 'encoded_date' in track.to_data():
+                    date_str = track.to_data()['encoded_date']
+                    return datetime.datetime.strptime(date_str, 'UTC %Y-%m-%d %H:%M:%S')
+                else:
+                    return None
+                           
+    def on_sidebar_button_1_click(self):
+        self.textbox_2.delete("0.0", tkinter.END)
+        folder_path = self.entry.get()
+        if not os.path.exists(folder_path):
+            self.textbox_2.insert("0.0", "Please select a folder path\n\n")
+            return
+
+        renamed_files = []
+        files_without_metadata = []
+        total_files = len(os.listdir(folder_path))
+        self.textbox_2.insert("0.0", f"Processing {total_files} files...\n\n")
+
+        progress_updater = ProgressUpdater(self, total_files, prefix="Progress:", suffix="Complete", length=15)
+        for i, filename in enumerate(os.listdir(folder_path), start=1):
+            progress_updater.update(i)
+            file_path = os.path.join(folder_path, filename)
+            if os.path.isfile(file_path):
+                extension = os.path.splitext(file_path)[1].lower()
+
+                if extension in ['.jpg', '.jpeg', '.png', '.arw', '.nef', '.tiff', '.webp', '.bmp', '.cr2', '.orf', '.rw2', '.rwl', '.srw']:
+                    datetime_obj = self.get_exif_date(file_path)
+                elif extension in ['.mov', '.mp4']:
+                    datetime_obj = self.get_media_date(file_path)
+                else:
+                    datetime_obj = None
+
+                if datetime_obj is not None:
+                    new_name = self.get_formatted_date(datetime_obj, filename) + extension
+                    new_file_path = os.path.join(folder_path, new_name)
+                    try:
+                        os.rename(file_path, new_file_path)
+                        renamed_files.append(new_name)
+                    except FileExistsError:
+                        i = 1
+                        while os.path.exists(new_file_path):
+                            new_name = self.get_formatted_date(datetime_obj, filename, index=i) + extension
+                            new_file_path = os.path.join(folder_path, new_name)
+                            i += 1
+                        os.rename(file_path, new_file_path)
+                        renamed_files.append(new_name)
+                else:
+                    files_without_metadata.append(filename)
+
+        self.textbox_2.insert("0.0", "Processing complete.\n\n")
+        if files_without_metadata:
+            self.textbox_2.insert("0.0", "Files without metadata:\n" + "\n".join(files_without_metadata) + "\n\n")
+
+    def update_preview(self):
+        folder_path = self.entry.get()
+        if not os.path.exists(folder_path):
+            self.textbox_3.delete("0.0", tkinter.END)
+            self.textbox_3.insert("0.0", "Please select a folder path\n\n")
+            return
+
+        self.textbox_3.delete("0.0", tkinter.END)
+        self.textbox_3.insert("0.0", "Preview of Files (0-49):\n\n")
+
+        file_count = 0
+        for filename in os.listdir(folder_path):
+            file_path = os.path.join(folder_path, filename)
+            if os.path.isfile(file_path):
+                extension = os.path.splitext(file_path)[1].lower()
+
+                if extension in ['.jpg', '.jpeg', '.png', '.arw', '.nef', '.tiff', '.webp', '.bmp', '.cr2', '.orf', '.rw2', '.rwl', '.srw']:
+                    datetime_obj = self.get_exif_date(file_path)
+                elif extension in ['.mov', '.mp4']:
+                    datetime_obj = self.get_media_date(file_path)
+                else:
+                    datetime_obj = None
+
+                if datetime_obj is not None:
+                    new_name = self.get_formatted_date(datetime_obj, filename) + extension
+                    self.textbox_3.insert(tkinter.END, f"{filename} -> {new_name}\n")
+                    file_count += 1
+                    if file_count >= 50:
+                        break
+
+    def get_formatted_date(self, datetime_obj, filename, index=None):
+        format_str = self.combobox_1.get()
+        prefix = self.entry_2.get()
+        suffix = self.entry_3.get()
+        base_name = os.path.splitext(filename)[0]
+
+        radio_option = self.radio_var.get()
+
+        if radio_option == 0:  # New
+            return f"{prefix}{datetime_obj.strftime(format_str)}{suffix}"
+        elif radio_option == 1:  # New + Original
+            return f"{prefix}{datetime_obj.strftime(format_str)}_{base_name}{suffix}"
+        elif radio_option == 2:  # Original
+            return f"{prefix}{base_name}{suffix}"
+        elif radio_option == 3:  # Original + New
+            return f"{prefix}{base_name}_{datetime_obj.strftime(format_str)}{suffix}"
+        else:
+            return None
+
+    def update_textbox_2(self, progress_text):
+        self.textbox_2.delete("0.0", tkinter.END)
+        self.textbox_2.insert("0.0", progress_text)
+
+    def browse_directory(self):
+        folder_path = tkinter.filedialog.askdirectory()
+        self.entry.delete(0, tkinter.END)
+        self.entry.insert(0, folder_path)
+        self.update_preview()
+
+    def open_input_dialog_event(self):
+        dialog = customtkinter.CTkInputDialog(text="Type in a number:", title="CTkInputDialog")
+        print("CTkInputDialog:", dialog.get_input())
+
+    def change_appearance_mode_event(self, new_appearance_mode: str):
+        customtkinter.set_appearance_mode(new_appearance_mode)
+
+    def change_scaling_event(self, new_scaling: str):
+        new_scaling_float = int(new_scaling.replace("%", "")) / 100
+        customtkinter.set_widget_scaling(new_scaling_float)
+
+    def sidebar_button_event(self):
+        pass
 
 class ProgressUpdater:
-    def __init__(self, total, prefix="", suffix="", decimals=1, length=100, fill='█', print_end="\r"):
+    def __init__(self, app, total, prefix="", suffix="", decimals=1, length=100, fill='█', print_end="\r"):
+        self.app = app
         self.total = total
         self.prefix = prefix
         self.suffix = suffix
@@ -20,213 +277,15 @@ class ProgressUpdater:
 
     def update(self, progress):
         self.progress = progress
-        percent = ("{0:." + str(self.decimals) + "f}").format(100 * (self.progress / float(self.total)))
-        filled_length = int(self.length * self.progress // self.total)
+        percent = ("{0:." + str(self.decimals) + "f}").format(100 * (progress / float(self.total)))
+        filled_length = int(self.length * progress // self.total)
         bar = self.fill * filled_length + '-' * (self.length - filled_length)
-        output.config(state=NORMAL)
-        output.delete(1.0, END)
-        output.insert(INSERT, f'{self.prefix} |{bar}| {percent}% {self.suffix} - Processed files: {self.progress}/{self.total}\n')
-        output.see(END)
-        output.config(state=DISABLED)
-        root.update_idletasks()
+        progress_text = f"{self.prefix} |{bar}| {percent}% {self.suffix}"
+        self.app.update_textbox_2(progress_text)
 
-# function to extract date from exif tags of .jpeg, .jpg, .png, ... files
-def get_exif_date(file_path):
-    with open(file_path, 'rb') as f:
-        tags = exifread.process_file(f)
-        if 'EXIF DateTimeOriginal' in tags:
-            date_str = str(tags['EXIF DateTimeOriginal'])
-            return datetime.datetime.strptime(date_str, '%Y:%m:%d %H:%M:%S')
-        elif 'EXIF DateTime' in tags:
-            date_str = str(tags['EXIF DateTime'])
-            return datetime.datetime.strptime(date_str, '%Y:%m:%d %H:%M:%S')
-        else:
-            return None
-
-# function to extract date from metadata of .mov and .mp4 files
-def get_media_date(file_path):
-    media_info = pymediainfo.MediaInfo.parse(file_path)
-    for track in media_info.tracks:
-            if 'comapplequicktimecreationdate' in track.to_data():
-                date_str = track.to_data()['comapplequicktimecreationdate']
-                date_str = date_str.replace('T', ' ').split('+')[0]
-                return datetime.datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
-            elif 'recorded_date' in track.to_data():
-                date_str = track.to_data()['recorded_date']
-                date_str = date_str.replace('T', ' ').split('+')[0]
-                return datetime.datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
-            elif 'encoded_date' in track.to_data():
-                date_str = track.to_data()['encoded_date']
-                return datetime.datetime.strptime(date_str, 'UTC %Y-%m-%d %H:%M:%S')
-            else:
-                return None
-
-def start_script():
-    output.config(state=NORMAL)
-    output.delete(1.0, END)
-
-    folder = folder_path.get()
-    output.insert(INSERT, f"Process files in the folder: {folder}\n")
-
-    renamed_files = []
-    files_without_metadata = []
-    
-    files = os.listdir(folder)
-    progress_updater = ProgressUpdater(total=len(files), prefix='Rename files:', suffix='', length=50)
-    for i, filename in enumerate(files):
-        progress_updater.update(i+1)
-
-
-        file_path = os.path.join(folder, filename)
-        if os.path.isfile(file_path):
-            extension = os.path.splitext(file_path)[1].lower()
-            if extension in ['.jpg', '.jpeg', '.png', '.arw', '.nef', '.tiff', '.webp', '.bmp', '.cr2', '.orf', '.rw2', '.rwl', '.srw']:
-                datetime_obj = get_exif_date(file_path)
-            elif extension in ['.mov', '.mp4']:
-                datetime_obj = get_media_date(file_path)
-            else:
-                datetime_obj = None
-
-            if datetime_obj is not None:
-                new_name = datetime_obj.strftime(selected_format.get()) + extension
-                # check if new name already exists, if yes, add an incremental number
-                if new_name in renamed_files:
-                    i = 1
-                    while new_name in renamed_files:
-                        new_name = datetime_obj.strftime("%Y-%m-%d_%H-%M-%S") + '_' + str(i) + extension
-                        i += 1
-                try:
-                    os.rename(file_path, os.path.join(folder_path.get(), new_name))
-                    renamed_files.append(new_name)
-                except FileExistsError:
-                    i += 1
-                    new_name = datetime_obj.strftime("%Y-%m-%d_%H-%M-%S") + '_' + str(i) + extension
-                    os.rename(file_path, os.path.join(folder_path.get(), new_name))
-                    renamed_files.append(new_name)
-            else:
-                files_without_metadata.append(filename)
-                output.config(state=NORMAL)
-                output.insert(INSERT, f"File '{filename}' could not be renamed (no metadata found).\n")
-                output.see(END)
-                output.config(state=DISABLED)
-                root.update_idletasks()
-
-def browse_folder():
-    global folder_path
-    folder_path.set(filedialog.askdirectory())
-
-def update_file_preview():
-    def generate_preview():
-        preview.config(state=NORMAL)
-        preview.delete(1.0, END)
-        folder = folder_path.get()
-        counter = 0
-        if os.path.isdir(folder):
-            for filename in os.listdir(folder):
-                if counter >= 100:
-                    break
-                file_path = os.path.join(folder, filename)
-                if os.path.isfile(file_path):
-                    extension = os.path.splitext(file_path)[1].lower()
-                    if extension in ['.jpg', '.jpeg', '.png', '.arw', '.nef', '.tiff', '.webp', '.bmp', '.cr2', '.orf', '.rw2', '.rwl', '.srw']:
-                        datetime_obj = get_exif_date(file_path)
-                    elif extension in ['.mov', '.mp4']:
-                        datetime_obj = get_media_date(file_path)
-                    else:
-                        datetime_obj = None
-
-                    if datetime_obj is not None:
-                        new_name = datetime_obj.strftime(selected_format.get()) + extension
-                    else:
-                        new_name = filename
-                    preview.insert(INSERT, new_name + "\n")
-                    counter += 1
-        preview.config(state=DISABLED)
-
-    preview_thread = threading.Thread(target=generate_preview)
-    preview_thread.start()
-
-def show_format_hints():
-    hints_window = Toplevel(root)
-    hints_window.geometry("300x350")
-    hints_window.configure(bg=BG_COLOR)
-    hints_window.title("Format Hints")
-    
-    hints_text = """Format Placeholder Meanings:
-
-    - Format 1: %Y-%m-%d_%H-%M-%S
-    - Example: 2023-04-13_14-30-15
-    
-    - Format 2: %Y%m%d_%H%M%S
-    - Example: 20230413_143015
-    
-    - Format 3: %d-%m-%Y_%Hh%Mm%Ss
-    - Example: 13-04-2023_14h30m15s
-    
-    Placeholders:
-    %Y - 4-digit year (e.g., 2023)
-    %m - 2-digit month with leading zero (e.g., 04)
-    %d - 2-digit day with leading zero (e.g., 13)
-    %H - 2-digit hour with leading zero (e.g., 14)
-    %M - 2-digit minute with leading zero (e.g., 30)
-    %S - 2-digit second with leading zero (e.g., 15)
-    """
-    
-    hints_label = Label(hints_window, text=hints_text, bg=BG_COLOR, fg=FG_COLOR, justify=LEFT)
-    hints_label.pack(padx=10, pady=10)
-
-BG_COLOR = "#303030"
-FG_COLOR = "#F0F0F0"
-BUTTON_COLOR = "#4a86e8"
-
-root = Tk()
-root.title("EXIFrenameX")
-root.geometry("1050x550")
-root.configure(bg=BG_COLOR)
-
-folder_path = StringVar()
-selected_format = StringVar()
-
-left_frame = Frame(root, bg=BG_COLOR)
-left_frame.pack(side=LEFT, fill=Y, padx=10)
-
-Label(left_frame, text="Select folder:", bg=BG_COLOR, fg=FG_COLOR).grid(row=0, column=0, padx=10, pady=10, sticky=W)
-
-Entry(left_frame, textvariable=folder_path).grid(row=1, column=0, padx=10, pady=5, sticky=W+E)
-Button(left_frame, text="Browse", command=lambda: [browse_folder(), update_file_preview()], bg=BUTTON_COLOR, fg=FG_COLOR, width=10).grid(row=2, column=0, padx=10, pady=5, sticky=W)
-
-selected_format = StringVar(value="%Y-%m-%d_%H-%M-%S")
-
-Label(left_frame, text="Select format:", bg=BG_COLOR, fg=FG_COLOR).grid(row=3, column=0, padx=8, pady=8, sticky=W)
-format_options = ["%Y-%m-%d_%H-%M-%S", "%Y%m%d_%H%M%S", "%d-%m-%Y_%Hh%Mm%Ss"]
-dropdown = ttk.Combobox(left_frame, values=format_options, textvariable=selected_format, state="normal", width=18)
-dropdown.grid(row=4, column=0, padx=10, pady=5, sticky=W+E)
-
-selected_format.trace_add("write", lambda *args: update_file_preview())
-
-Button(left_frame, text="Format Hints", command=show_format_hints, bg=BUTTON_COLOR, fg=FG_COLOR, width=10).grid(row=5, column=0, padx=8, pady=5, sticky=W)
-
-Button(left_frame, text="Rename All", command=start_script, bg=BUTTON_COLOR, fg=FG_COLOR, width=18).grid(row=6, column=0, padx=10, pady=5, sticky='EW')
-
-Label(left_frame, text="Processing output", bg=BG_COLOR, fg=FG_COLOR).grid(row=7, column=0, padx=10, pady=10, sticky=W)
-output = Text(left_frame, wrap=WORD, state=DISABLED, bg=BG_COLOR, fg=FG_COLOR)
-output.grid(row=8, column=0, padx=10, pady=5, sticky=W+E+N+S)
-
-left_frame.grid_rowconfigure(8, weight=1)
-left_frame.grid_columnconfigure(0, weight=1)
-
-preview_frame = Frame(root, bg=BG_COLOR)
-preview_frame.pack(side=LEFT, fill=BOTH, expand=1)
-
-Label(preview_frame, text="File preview:", bg=BG_COLOR, fg=FG_COLOR).grid(row=0, column=0, sticky=W, padx=10, pady=10)
-
-preview = Text(preview_frame, wrap=WORD, state=DISABLED, bg=BG_COLOR, fg=FG_COLOR)
-preview.grid(row=1, column=0, sticky=N+S+E+W, padx=10, pady=5)
-preview_scrollbar = Scrollbar(preview_frame, command=preview.yview)
-preview_scrollbar.grid(row=1, column=1, sticky=N+S, padx=5, pady=5)
-preview.config(yscrollcommand=preview_scrollbar.set)
-
-preview_frame.grid_rowconfigure(1, weight=2)
-preview_frame.grid_columnconfigure(0, weight=2)
-
-root.mainloop()
+    def close(self):
+        pass
+        
+if __name__ == "__main__":
+    app = App()
+    app.mainloop()
