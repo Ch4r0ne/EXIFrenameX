@@ -87,7 +87,31 @@ class App(customtkinter.CTk):
         self.radio_button_4.configure(text="Orginal + New")
         self.appearance_mode_optionemenu.set("Dark")
         self.scaling_optionemenu.set("100%")
-        self.textbox_1.insert("0.0", "Format explanation\n\n" + "- Format 1: %Y-%m-%d_%H-%M-%S\n" + "- Example: 2023-04-13_14-30-15\n" + "\n" + "- Format 2: %Y%m%d_%H%M%S\n" + "- Example: 20230413_143015\n" + "\n" + "- Format 3: %d-%m-%Y_%Hh%Mm%Ss\n" + "- Example: 13-04-2023_14h30m15s\n\n" + "Placeholders:\n\n" + "%Y - 4-digit year (e.g., 2023)\n" + "%m - 2-digit month with leading zero (e.g., 04)\n" + "%d - 2-digit day with leading zero (e.g., 13)\n" + "%H - 2-digit hour with leading zero (e.g., 14)\n" + "%M - 2-digit minute with leading zero (e.g., 30)\n" + "%S - 2-digit second with leading zero (e.g., 15)")
+        self.textbox_1.insert("0.0", "Format explanation\n\n"
+                                    "- Format 1: %Y-%m-%d_%H-%M-%S\n"
+                                    "- Example: 2023-04-13_14-30-15\n\n"
+                                    "- Format 2: %Y%m%d_%H%M%S\n"
+                                    "- Example: 20230413_143015\n\n"
+                                    "- Format 3: %d-%m-%Y_%Hh%Mm%Ss\n"
+                                    "- Example: 13-04-2023_14h30m15s\n\n"
+                                    "Placeholders:\n"
+                                    "- %Y: year (e.g., 2023)\n"
+                                    "- %m: month (e.g., 01)\n"
+                                    "- %d: day (e.g., 31)\n"
+                                    "- %H: hour (00-23)\n"
+                                    "- %M: minute (00-59)\n"
+                                    "- %S: second (00-59)\n\n"
+                                    "Other options:\n"
+                                    "- %y: 2-digit year\n"
+                                    "- %b, %B: abbreviated/full month name\n"
+                                    "- %a, %A: abbreviated/full weekday name\n"
+                                    "- %I: hour (01-12)\n"
+                                    "- %p: AM/PM\n"
+                                    "- %j: day of the year\n"
+                                    "- %U, %W: week number (Sun/Mon first)\n"
+                                    "- %Z, %z: time zone name/offset\n\n"
+                                    "Combine symbols to create custom formats.")
+
         self.textbox_2.insert("0.0", "File processing: \n")
         self.textbox_3.insert("0.0", "Preview of Files (0-49):\n\n")
 
