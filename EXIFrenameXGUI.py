@@ -6,6 +6,7 @@ import tkinter
 import tkinter.filedialog
 import tkinter.messagebox
 import customtkinter
+import threading
 
 customtkinter.set_appearance_mode("System")  # Modes: "System" (standard), "Dark", "Light"
 customtkinter.set_default_color_theme("blue")  # Themes: "blue" (standard), "green", "dark-blue"
@@ -127,50 +128,60 @@ class App(customtkinter.CTk):
             self.textbox_2.delete("0.0", tkinter.END)
             self.textbox_2.insert("0.0", "Please select a folder path\n\n")
             return
-        progress_updater = ProgressUpdater(self, 0)
-        renamed_files = []
-        files_without_metadata = []
-        progress_updater.total = len(os.listdir(folder_path))
-        for index, filename in enumerate(os.listdir(folder_path)):
-            file_path = os.path.join(folder_path, filename)
-            if os.path.isfile(file_path):
-                extension = os.path.splitext(file_path)[1].lower()
-                if extension in ['.jpg', '.jpeg', '.png', '.arw', '.nef', '.tiff', '.webp', '.bmp', '.cr2', '.orf', '.rw2', '.rwl', '.srw']:
-                    datetime_obj = self.get_exif_date(file_path)
-                elif extension in ['.mov', '.mp4']:
-                    datetime_obj = self.get_media_date(file_path)
-                else:
-                    datetime_obj = None
-                if datetime_obj is not None:
-                    new_name = self.get_formatted_date(datetime_obj, filename, index=index) + extension
-                    if new_name in renamed_files:
-                        i = 1
-                        while new_name in renamed_files:
-                            new_name = self.get_formatted_date(datetime_obj, filename, index=index) + '_' + str(i) + extension
+
+        def process_files():
+            renamed_files = []
+            files_without_metadata = []
+            progress_updater = ProgressUpdater(self, 0)
+            progress_updater.total = len(os.listdir(folder_path))
+            for index, filename in enumerate(os.listdir(folder_path)):
+                file_path = os.path.join(folder_path, filename)
+                if os.path.isfile(file_path):
+                    extension = os.path.splitext(file_path)[1].lower()
+                    if extension in ['.jpg', '.jpeg', '.png', '.arw', '.nef', '.tiff', '.webp', '.bmp', '.cr2', '.orf', '.rw2', '.rwl', '.srw']:
+                        datetime_obj = self.get_exif_date(file_path)
+                    elif extension in ['.mov', '.mp4']:
+                        datetime_obj = self.get_media_date(file_path)
+                    else:
+                        datetime_obj = None
+                    if datetime_obj is not None:
+                        new_name = self.get_formatted_date(datetime_obj, filename, index=index) + extension
+                        if new_name in renamed_files:
+                            i = 1
+                            while new_name in renamed_files:
+                                new_name = self.get_formatted_date(datetime_obj, filename, index=index) + '_' + str(i) + extension
+                                i += 1
+                        try:
+                            os.rename(file_path, os.path.join(folder_path, new_name))
+                            renamed_files.append(new_name)
+                        except FileExistsError:
                             i += 1
-                    try:
-                        os.rename(file_path, os.path.join(folder_path, new_name))
-                        renamed_files.append(new_name)
-                    except FileExistsError:
-                        i += 1
-                        new_name = self.get_formatted_date(datetime_obj, filename, index=index) + '_' + str(i) + extension
-                        os.rename(file_path, os.path.join(folder_path, new_name))
-                        renamed_files.append(new_name)
+                            new_name = self.get_formatted_date(datetime_obj, filename, index=index) + '_' + str(i) + extension
+                            os.rename(file_path, os.path.join(folder_path, new_name))
+                            renamed_files.append(new_name)
+                    else:
+                        files_without_metadata.append(filename)
+
+                progress_updater.update(index+1)
+            self.textbox_2.delete("3.0", tkinter.END)
+            if len(files_without_metadata) > 0:
+                self.textbox_2.insert("3.0", f"\n\nFiles without Metadata have not been renamed:\n")
+                for name in files_without_metadata:
+                    self.textbox_2.insert(tkinter.END, f"-> File: {name}\n")
+
+            if len(renamed_files) > 0:
+                if len(files_without_metadata) > 0:
+                    self.textbox_2.insert(tkinter.END, f"\n\nRename Successfully:\n")
                 else:
-                    files_without_metadata.append(filename)
+                    self.textbox_2.insert("3.0", f"\n\nRename Successfully:\n")
+                for name in renamed_files:
+                    self.textbox_2.insert(tkinter.END, f"-> File: {name}\n")
+            else:
+                if len(files_without_metadata) == 0:
+                    self.textbox_2.insert("3.0", f"\n\nRename Successfully:\n")
 
-            progress_updater.update(index+1)
-
-        # update the preview in textbox_2
-        self.textbox_2.delete("0.0", tkinter.END)
-        self.textbox_2.insert("0.0", f"Files renamed successfully:")
-        for file in renamed_files:
-            self.textbox_2.insert("end", f"")
-        if len(files_without_metadata) > 0:
-            self.textbox_2.insert("end", f"\n\nThe following files have no metadata and were not renamed:\n")
-            for file in files_without_metadata:
-                self.textbox_2.insert("end", f"{file}\n")
-        self.textbox_3.see("end")
+        processing_thread = threading.Thread(target=process_files)
+        processing_thread.start()
 
     def update_preview(self):
         try:
@@ -248,7 +259,7 @@ class App(customtkinter.CTk):
         pass
 
 class ProgressUpdater:
-    def __init__(self, app, total, prefix="", suffix="", decimals=1, length=100, fill='█', print_end="\r"):
+    def __init__(self, app, total, prefix="", suffix="", decimals=1, length=25, fill='█', print_end="\r"):
         self.app = app
         self.total = total
         self.prefix = prefix
@@ -265,10 +276,7 @@ class ProgressUpdater:
         filled_length = int(self.length * progress // self.total)
         bar = self.fill * filled_length + '-' * (self.length - filled_length)
         progress_text = f"{self.prefix} |{bar}| {percent}% {self.suffix}"
-        self.app.update_textbox_2(progress_text)
-
-    def close(self):
-        pass
+        app.update_textbox_2(progress_text)
         
 if __name__ == "__main__":
     app = App()
