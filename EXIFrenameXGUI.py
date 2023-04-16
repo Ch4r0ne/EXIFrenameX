@@ -214,16 +214,13 @@ class App(customtkinter.CTk):
                 app.textbox_3.delete("0.0", tkinter.END)
                 app.textbox_3.insert("0.0", "Please select a folder path\n\n")
                 return
-
             app.textbox_3.delete("0.0", tkinter.END)
             app.textbox_3.insert("0.0", "Preview of Files (0-49):\n\n")
-
             file_count = 0
             for filename in os.listdir(folder_path):
                 file_path = os.path.join(folder_path, filename)
                 if os.path.isfile(file_path):
                     extension = os.path.splitext(file_path)[1].lower()
-
                     if extension in ['.jpg', '.jpeg', '.png', '.arw', '.nef', '.tiff', '.webp', '.bmp', '.cr2', '.orf', '.rw2', '.rwl', '.srw']:
                         datetime_obj = self.get_exif_date(file_path)
                     elif extension in ['.mov', '.mp4']:
@@ -237,8 +234,9 @@ class App(customtkinter.CTk):
                         if file_count >= 50:
                             break
         except Exception as e:
+            if hasattr(app, 'textbox_2'):  # check if textbox_2 exists
                 app.textbox_2.insert("0.0", f"Error: {str(e)}\n\n")
-
+                
     def get_formatted_date(self, datetime_obj, filename, index=None):
         format_str = self.combobox_1.get()
         prefix = self.entry_2.get()
