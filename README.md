@@ -19,7 +19,20 @@ You can install these libraries by running the following command in your command
     pip install exifread pymediainfo tqdm
 
 ### Supported file types
- JPEG, JPG, PNG, ARW, NEF, TIFF, WEBP, BMP, CR2, ORF, RW2, RWL, SRW, MOV, MP4
+JPEG images (.JPG / .JPEG)
+PNG images (.PNG)
+Sony RAW images (.ARW)
+Nikon RAW images (.NEF)
+TIFF images (.TIFF / .TIF)
+WebP images (.WEBP)
+BMP images (.BMP)
+Canon RAW images (.CR2)
+Olympus RAW images (.ORF)
+Panasonic RAW images (.RW2)
+Leica RAW images (.RWL)
+Samsung RAW images (.SRW)
+QuickTime video (.MOV)
+MPEG-4 video (.MP4)
 
 ### Note
 - The program will check if the new name already exists and add an incremental number to avoid overwriting files with the same name.
