@@ -21,8 +21,6 @@ How to use
 - Sony RAW images (.ARW)
 - Nikon RAW images (.NEF)
 - TIFF images (.TIFF / .TIF)
-- WebP images (.WEBP)
-- BMP images (.BMP)
 - Canon RAW images (.CR2)
 - Olympus RAW images (.ORF)
 - Panasonic RAW images (.RW2)
