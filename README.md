@@ -14,7 +14,9 @@ This application renames image and video files based on their metadata (e.g. dat
 
 ### Sort your video files by recording date
 
-![EXIFrenameXGUI.png](Sourcecode/Preview/EXIFrenameXGUI.png)
+![EXIFrenameX_not_renamed.png](Sourcecode/Preview/EXIFrenameX_not_renamed.png)
+
+![EXIFrenameX_renamed.png](Sourcecode/Preview/EXIFrenameX_renamed.png)
 
 ### Supported file types
 - JPEG images (.JPG / .JPEG)
