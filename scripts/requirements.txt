@@ -1,4 +1,0 @@
-exifread
-pymediainfo
-tqdm
-customtkinter
