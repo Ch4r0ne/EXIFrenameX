@@ -1,7 +1,8 @@
 # EXIFrenameX
 
 This application renames image and video files based on their metadata (e.g. date taken/created) using a user-defined format. It supports renaming multiple files at once and allows users to preview the new names before renaming the files.
-How to use
+
+## How to use
 
 ### To use this application, simply run the .exe file and follow these steps
 
@@ -11,7 +12,7 @@ How to use
 4. Click the Update Preview button to see how the new names will look. The first 50 files in the folder will be displayed.
 5. If you are happy with the preview, click the 'Rename Files' button to rename the files.
 
-### Dark Mode Windows 11 Design
+### Sort your video files by recording date
 
 ![EXIFrenameXGUI.png](Sourcecode/Preview/EXIFrenameXGUI.png)
 
