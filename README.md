@@ -13,7 +13,7 @@ How to use
 
 ### Dark Mode Windows 11 Design
 
-![EXIFrenameXGUI.png](scripts/preview/EXIFrenameXGUI.png)
+![EXIFrenameXGUI.png](Sourcecode/Preview/EXIFrenameXGUI.png)
 
 ### Supported file types
 - JPEG images (.JPG / .JPEG)
