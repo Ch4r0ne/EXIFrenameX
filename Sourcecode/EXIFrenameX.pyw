@@ -2,16 +2,20 @@ import os
 import exifread
 import pymediainfo
 import datetime
+from datetime import datetime
 import tkinter
 import tkinter.filedialog
 import tkinter.messagebox
 import customtkinter
 import threading
+from PIL import Image
+from pillow_heif import register_heif_opener
+import re
 
 customtkinter.set_appearance_mode("System")  # Modes: "System" (standard), "Dark", "Light"
 customtkinter.set_default_color_theme("blue")  # Themes: "blue" (standard), "green", "dark-blue"
 
-class App(customtkinter.CTk):
+class app(customtkinter.CTk):
     def __init__(self):
         super().__init__()
 
@@ -125,6 +129,10 @@ class App(customtkinter.CTk):
             elif 'EXIF DateTime' in tags:
                 date_str = str(tags['EXIF DateTime'])
                 return datetime.datetime.strptime(date_str, '%Y:%m:%d %H:%M:%S')
+            #Optional:
+            #elif 'file_creation_date' in tags:
+            #    date_str = str(tags['file_creation_date'])
+            #    return datetime.datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S.%f %Z')
             else:
                 return None
 
@@ -145,7 +153,30 @@ class App(customtkinter.CTk):
                     return datetime.datetime.strptime(date_str, 'UTC %Y-%m-%d %H:%M:%S')
                 else:
                     return None
-                           
+
+    def get_heic_exif_date(self, file_path):
+        with open(file_path, 'rb') as f:
+            img = Image.open(f)
+            metadata = img.info
+            for key, value in metadata.items():
+                if key == 'xmp':
+                    if value is not None:  # Check if value is not None
+                        xmp_data = value.decode('utf-8')
+                        create_date_match = re.search(r'xmp:CreateDate="([^"]+)"', xmp_data)
+                        if create_date_match:
+                            create_date = create_date_match.group(1)
+                            try:
+                                date_object = datetime.strptime(create_date, '%Y-%m-%dT%H:%M:%S')
+                                return date_object
+                            except ValueError as e:
+                                print("Error converting date:", e)
+                                return None
+            img.close()  # Close the image object to release associated resources
+
+        # Return None if no CreateDate metadata was found or if value is None
+        return None
+
+    
     def on_sidebar_button_1_click(self):
         folder_path = self.entry.get()
         if not os.path.exists(folder_path):
@@ -166,6 +197,8 @@ class App(customtkinter.CTk):
                         datetime_obj = self.get_exif_date(file_path)
                     elif extension in ['.mov', '.mp4']:
                         datetime_obj = self.get_media_date(file_path)
+                    elif extension in ['.heic']:
+                        datetime_obj = self.get_heic_exif_date(file_path)
                     else:
                         datetime_obj = None
                     if datetime_obj is not None:
@@ -225,6 +258,8 @@ class App(customtkinter.CTk):
                         datetime_obj = self.get_exif_date(file_path)
                     elif extension in ['.mov', '.mp4']:
                         datetime_obj = self.get_media_date(file_path)
+                    elif extension in ['.heic']:
+                        datetime_obj = self.get_heic_exif_date(file_path)
                     else:
                         datetime_obj = None
                     if datetime_obj is not None:
@@ -301,5 +336,5 @@ class ProgressUpdater:
         app.update_textbox_2(progress_text)
         
 if __name__ == "__main__":
-    app = App()
+    app = app()
     app.mainloop()
