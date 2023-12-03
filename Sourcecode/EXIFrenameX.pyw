@@ -2,7 +2,6 @@ import os
 import exifread
 import pymediainfo
 import datetime
-from datetime import datetime
 import tkinter
 import tkinter.filedialog
 import tkinter.messagebox
@@ -140,19 +139,21 @@ class app(customtkinter.CTk):
     def get_media_date(self, file_path):
         media_info = pymediainfo.MediaInfo.parse(file_path)
         for track in media_info.tracks:
-                if 'comapplequicktimecreationdate' in track.to_data():
-                    date_str = track.to_data()['comapplequicktimecreationdate']
-                    date_str = date_str.replace('T', ' ').split('+')[0]
-                    return datetime.datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
-                elif 'recorded_date' in track.to_data():
-                    date_str = track.to_data()['recorded_date']
-                    date_str = date_str.replace('T', ' ').split('+')[0]
-                    return datetime.datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
-                elif 'encoded_date' in track.to_data():
-                    date_str = track.to_data()['encoded_date']
-                    return datetime.datetime.strptime(date_str, 'UTC %Y-%m-%d %H:%M:%S')
-                else:
-                    return None
+            if 'comapplequicktimecreationdate' in track.to_data():
+                date_str = track.to_data()['comapplequicktimecreationdate']
+                date_str = date_str.replace('T', ' ').split('+')[0]
+                return datetime.datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
+            elif 'recorded_date' in track.to_data():
+                date_str = track.to_data()['recorded_date']
+                date_str = date_str.replace('T', ' ').split('+')[0]
+                return datetime.datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
+            elif 'encoded_date' in track.to_data():
+                date_str = track.to_data()['encoded_date']
+                try:
+                    return datetime.datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S UTC')
+                except ValueError:
+                    pass  # Try other formats or handle the error as needed
+        return None  # Return None if no valid date is found
 
     def get_heic_exif_date(self, file_path):
         with open(file_path, 'rb') as f:
@@ -166,7 +167,7 @@ class app(customtkinter.CTk):
                         if create_date_match:
                             create_date = create_date_match.group(1)
                             try:
-                                date_object = datetime.strptime(create_date, '%Y-%m-%dT%H:%M:%S')
+                                date_object = datetime.datetime.strptime(create_date, '%Y-%m-%dT%H:%M:%S')
                                 return date_object
                             except ValueError as e:
                                 print("Error converting date:", e)
@@ -195,10 +196,10 @@ class app(customtkinter.CTk):
                     extension = os.path.splitext(file_path)[1].lower()
                     if extension in ['.jpg', '.jpeg', '.png', '.arw', '.nef', '.tiff', '.webp', '.bmp', '.cr2', '.orf', '.rw2', '.rwl', '.srw']:
                         datetime_obj = self.get_exif_date(file_path)
-                    elif extension in ['.mov', '.mp4']:
-                        datetime_obj = self.get_media_date(file_path)
                     elif extension in ['.heic']:
                         datetime_obj = self.get_heic_exif_date(file_path)
+                    elif extension in ['.mov', '.mp4']:
+                        datetime_obj = self.get_media_date(file_path)
                     else:
                         datetime_obj = None
                     if datetime_obj is not None:
@@ -256,10 +257,10 @@ class app(customtkinter.CTk):
                     extension = os.path.splitext(file_path)[1].lower()
                     if extension in ['.jpg', '.jpeg', '.png', '.arw', '.nef', '.tiff', '.webp', '.bmp', '.cr2', '.orf', '.rw2', '.rwl', '.srw']:
                         datetime_obj = self.get_exif_date(file_path)
-                    elif extension in ['.mov', '.mp4']:
-                        datetime_obj = self.get_media_date(file_path)
                     elif extension in ['.heic']:
                         datetime_obj = self.get_heic_exif_date(file_path)
+                    elif extension in ['.mov', '.mp4']:
+                        datetime_obj = self.get_media_date(file_path)
                     else:
                         datetime_obj = None
                     if datetime_obj is not None:
