@@ -108,16 +108,25 @@ class MediaMetadataService:
     def get_media_date(file_path: str) -> Optional[datetime.datetime]:
         try:
             mi = pymediainfo.MediaInfo.parse(file_path)
+            date_fields = [
+                "encoded_date",
+                "tagged_date",
+                "file_creation_date__local",
+                "file_creation_date",
+                "file_last_modification_date__local",
+                "file_last_modification_date"
+            ]
             for track in mi.tracks:
-                for key in ['comapplequicktimecreationdate', 'recorded_date', 'encoded_date', 'tagged_date']:
-                    date_str = track.to_data().get(key)
-                    if date_str:
-                        date_str = date_str.replace('T', ' ').split('+')[0]
-                        for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M:%S %Z'):
-                            try:
-                                return datetime.datetime.strptime(date_str, fmt)
-                            except ValueError:
-                                continue
+                data = track.to_data()
+                for field in date_fields:
+                    if field in data and data[field]:
+                        value = data[field]
+                        try:
+                            dt_str = value.replace(" UTC", "").split(".")[0]
+                            dt = datetime.datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
+                            return dt
+                        except Exception:
+                            continue
         except Exception as e:
             logging.warning(f"MediaInfo read failed for {file_path}: {e}")
         return None
@@ -426,10 +435,9 @@ class ExifRenameXApp(customtkinter.CTk):
 
     def update_undo_button_text(self):
         steps = len(self.rename_service.rename_history)
-        steps_str = " ".join(str(i+1) for i in range(steps))
         if steps:
             self.undo_button.configure(
-                text=f"Undo last Rename ({steps_str})",
+                text=f"Undo last Rename ({steps})",
                 state="normal"
             )
         else:
