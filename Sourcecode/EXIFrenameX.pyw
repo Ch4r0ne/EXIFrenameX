@@ -10,10 +10,10 @@ from PIL import Image
 from pillow_heif import register_heif_opener
 import exifread
 import pymediainfo
-import traceback
 from typing import Optional, List, Tuple, Dict
+from queue import Queue, Empty
 
-# ExifToolWrapper check (optional dependency)
+# Optional: ExifToolWrapper
 try:
     from exiftool_wrapper import ExifToolWrapper
     EXIFTOOL_AVAILABLE = True
@@ -35,10 +35,7 @@ EXIFTOOL_DATE_TAGS = [
     "QuickTime:ModifyDate", "QuickTime:ContentCreateDate", "PNG:CreationTime"
 ]
 
-# --- Metadata utilities ---
-
 def parse_exiftool_datetime(dt_string: str) -> Optional[datetime.datetime]:
-    """Try to parse multiple datetime formats commonly found in metadata."""
     date_formats = (
         "%Y:%m:%d %H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y:%m:%d %H:%M:%S%z",
         "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%d %H:%M:%S%z"
@@ -55,7 +52,6 @@ def parse_exiftool_datetime(dt_string: str) -> Optional[datetime.datetime]:
         return None
 
 class MediaMetadataService:
-    """Handles all metadata extraction from files using multiple fallback strategies."""
     EXIF_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.arw', '.nef', '.tiff', '.webp', '.bmp',
                        '.cr2', '.orf', '.rw2', '.rwl', '.srw']
     HEIC_EXTENSIONS = ['.heic']
@@ -158,10 +154,7 @@ class MediaMetadataService:
             return cls.get_file_system_date(file_path)
         return None
 
-# --- Rename/Undo Service ---
-
 class RenameService:
-    """Handles file renaming logic, keeps undo history, abstracts all file operations for the GUI."""
     def __init__(self):
         self.rename_history: List[List[Tuple[str, str]]] = []
 
@@ -170,14 +163,20 @@ class RenameService:
         folder_path: str,
         files: List[str],
         naming_settings: Dict,
-        use_fallback: bool
+        use_fallback: bool,
+        status_queue: Queue = None,
+        stop_event: threading.Event = None
     ) -> Tuple[List[str], List[str], List[str], List[Tuple[str, str]]]:
         renamed_files = []
         files_without_metadata = []
         errors = []
         rename_pairs = []
         name_set = set()
-        for filename in files:
+        for idx, filename in enumerate(files):
+            if stop_event and stop_event.is_set():
+                if status_queue:
+                    status_queue.put("Renaming cancelled by user.\n")
+                break
             file_path = os.path.join(folder_path, filename)
             try:
                 date_obj = MediaMetadataService.get_best_date(file_path, use_fallback=use_fallback)
@@ -195,17 +194,25 @@ class RenameService:
                         name_root, name_ext = os.path.splitext(original_new_name)
                         new_name = f"{name_root}_{i}{name_ext}"
                         i += 1
-                    os.rename(file_path, os.path.join(folder_path, new_name))
+                    old_full_path = os.path.join(folder_path, filename)
+                    new_full_path = os.path.join(folder_path, new_name)
+                    os.rename(old_full_path, new_full_path)
                     renamed_files.append(new_name)
                     name_set.add(new_name)
-                    rename_pairs.append((os.path.join(folder_path, new_name), file_path))
+                    rename_pairs.append((old_full_path, new_full_path))
                     logging.info(f"Renamed: {filename} -> {new_name}")
+                    if status_queue:
+                        status_queue.put(f"Renamed: {filename} -> {new_name}")
                 else:
                     files_without_metadata.append(filename)
                     logging.info(f"No metadata found for: {filename}")
+                    if status_queue:
+                        status_queue.put(f"No metadata: {filename}")
             except Exception as exc:
                 errors.append(f"{filename} (Error: {str(exc)})")
                 logging.error(f"Error renaming {filename}: {exc}", exc_info=True)
+                if status_queue:
+                    status_queue.put(f"Error renaming {filename}: {exc}")
         if rename_pairs:
             self.rename_history.append(rename_pairs)
         return renamed_files, files_without_metadata, errors, rename_pairs
@@ -216,7 +223,8 @@ class RenameService:
         last_pairs = self.rename_history.pop()
         undone = []
         errors = []
-        for new_path, old_path in reversed(last_pairs):
+        # Rückgängig von neu zu alt
+        for old_path, new_path in reversed(last_pairs):
             try:
                 if os.path.exists(new_path):
                     if not os.path.exists(old_path):
@@ -252,71 +260,40 @@ def get_formatted_name(
         return f"{prefix}{base_name}_{new_time}{suffix}{ext}"
     return f"{prefix}{new_time}{suffix}{ext}"
 
-# --- Progressbar Helper for GUI ---
-
-class ProgressUpdater:
-    def __init__(self, app_ref, total, prefix="", suffix="", decimals=1, length=25, fill='█'):
-        self.app_ref = app_ref
-        self.total = total
-        self.prefix = prefix
-        self.suffix = suffix
-        self.decimals = decimals
-        self.length = length
-        self.fill = fill
-
-    def update(self, progress):
-        percent = ("{0:." + str(self.decimals) + "f}").format(100 * (progress / float(self.total)))
-        filled_length = int(self.length * progress // self.total)
-        bar = self.fill * filled_length + '-' * (self.length - filled_length)
-        progress_text = f"{self.prefix} |{bar}| {percent}% {self.suffix}"
-        self.app_ref.after(0, lambda: self.app_ref.set_status_output(progress_text))
-
-# --- Main GUI Application ---
-
 class ExifRenameXApp(customtkinter.CTk):
-    """
-    Main application window for EXIFrenameX.
-    Handles all GUI components and delegates logic to business logic service classes.
-    """
     def __init__(self):
         super().__init__()
         self.title("EXIFrenameX")
         self.geometry("1240x720")
         self.rename_service = RenameService()
+        self.status_queue = Queue()
+        self.rename_stop_event = threading.Event()
+        self.rename_thread = None
         self._build_gui()
 
     def _build_gui(self):
-        # --- LAYOUT ROOT GRID ---
         self.grid_columnconfigure(1, weight=1)
         self.grid_columnconfigure((2, 3), weight=0)
         self.grid_rowconfigure((0, 1, 2), weight=1)
-
-        # --- SIDEBAR (LEFT) ---
         self.sidebar = customtkinter.CTkFrame(self, width=170, corner_radius=0)
         self.sidebar.grid(row=0, column=0, rowspan=7, sticky="nsew")
         self.sidebar.grid_rowconfigure(4, weight=1)
-
         self.logo_label = customtkinter.CTkLabel(
             self.sidebar, text="EXIFrenameX",
             font=customtkinter.CTkFont(size=22, weight="bold")
         )
         self.logo_label.grid(row=0, column=0, padx=20, pady=(25, 10))
-
-        # Theme and scaling selectors (small)
         font_options = customtkinter.CTkFont(size=12)
         self.appearance_mode_optionmenu = customtkinter.CTkOptionMenu(
             self.sidebar, values=["Light", "Dark", "System"], command=self.change_appearance_mode_event,
             width=90, height=28, font=font_options
         )
         self.appearance_mode_optionmenu.grid(row=7, column=0, padx=20, pady=(7, 5), sticky="ew")
-
         self.scaling_optionmenu = customtkinter.CTkOptionMenu(
             self.sidebar, values=["80%", "90%", "100%", "110%", "120%"], command=self.change_scaling_event,
             width=90, height=28, font=font_options
         )
         self.scaling_optionmenu.grid(row=8, column=0, padx=20, pady=(2, 18), sticky="ew")
-
-        # --- FORMAT LEGEND (LEFT CENTER) ---
         self.legend_textbox = customtkinter.CTkTextbox(self, width=260)
         self.legend_textbox.grid(row=0, column=1, padx=(20, 0), pady=(20, 0), sticky="nsew")
         self.legend_textbox.insert("0.0", (
@@ -345,21 +322,15 @@ class ExifRenameXApp(customtkinter.CTk):
             "- %Z, %z: time zone name/offset\n\n"
             "Combine symbols to create custom formats.")
         )
-
-        # --- STATUS OUTPUT (CENTER LEFT, UNDER LEGEND) ---
         self.status_output_textbox = customtkinter.CTkTextbox(self, width=270)
         self.status_output_textbox.grid(row=1, column=1, padx=(20, 0), pady=(20, 0), sticky="nsew")
         self.set_status_output("File processing status will appear here.")
-
-        # --- FILENAME FORMAT / PREFIX / SUFFIX + UNDO PANEL (TOP RIGHT) ---
         self.format_frame = customtkinter.CTkFrame(self, width=270)
         self.format_frame.grid(row=0, column=2, padx=(20, 0), pady=(20, 0), sticky="nsew")
-
         self.select_format_label = customtkinter.CTkLabel(
             self.format_frame, text="Select File Name Format", font=customtkinter.CTkFont(weight="bold", size=15)
         )
         self.select_format_label.grid(row=0, column=0, padx=20, pady=(10, 2), sticky="w")
-
         self.format_combobox = customtkinter.CTkComboBox(
             self.format_frame,
             values=["%Y-%m-%d_%H-%M-%S", "%Y%m%d_%H%M%S", "%d-%m-%Y_%Hh%Mm%Ss"],
@@ -367,36 +338,28 @@ class ExifRenameXApp(customtkinter.CTk):
         )
         self.format_combobox.grid(row=1, column=0, padx=20, pady=(6, 8))
         self.format_combobox.set("%Y-%m-%d_%H-%M-%S")
-
         self.prefix_entry = customtkinter.CTkEntry(
             self.format_frame, width=240, placeholder_text="Enter prefix for new names"
         )
         self.prefix_entry.grid(row=2, column=0, padx=20, pady=(2, 8))
         self.prefix_entry.bind("<KeyRelease>", lambda _: self.update_preview())
-
         self.suffix_entry = customtkinter.CTkEntry(
             self.format_frame, width=240, placeholder_text="Enter suffix for new names"
         )
         self.suffix_entry.grid(row=3, column=0, padx=20, pady=(2, 8))
         self.suffix_entry.bind("<KeyRelease>", lambda _: self.update_preview())
-
-        # --- UNDO BUTTON under File Name Format panel ---
         self.undo_button = customtkinter.CTkButton(
             self.format_frame, text="Undo last Rename", command=self.on_undo_last_rename, state="disabled"
         )
         self.undo_button.grid(row=4, column=0, padx=20, pady=(16, 10), sticky="ew")
-
-        # --- PATTERN/FALLBACK PANEL (TOP RIGHT OUTER) ---
         self.pattern_fallback_frame = customtkinter.CTkFrame(self, width=270)
         self.pattern_fallback_frame.grid(row=0, column=3, padx=(20, 20), pady=(20, 0), sticky="nsew")
-
         self.naming_pattern_label = customtkinter.CTkLabel(
             master=self.pattern_fallback_frame,
             text="File Name Pattern",
             font=customtkinter.CTkFont(weight="bold", size=15)
         )
         self.naming_pattern_label.grid(row=0, column=0, padx=20, pady=(18, 6), sticky="w")
-
         self.naming_style_var = tkinter.IntVar(value=0)
         self.naming_style_var.trace_add('write', lambda *args, **kwargs: self.update_preview())
         self.radio_new_only = customtkinter.CTkRadioButton(
@@ -415,7 +378,6 @@ class ExifRenameXApp(customtkinter.CTk):
             master=self.pattern_fallback_frame, variable=self.naming_style_var, value=3, text="Original + Date"
         )
         self.radio_original_new.grid(row=4, column=0, pady=(2, 12), padx=30, sticky="w")
-
         self.fallback_label = customtkinter.CTkLabel(
             master=self.pattern_fallback_frame, text="Fallback Options", font=customtkinter.CTkFont(weight="bold", size=13)
         )
@@ -427,46 +389,36 @@ class ExifRenameXApp(customtkinter.CTk):
             command=self.on_system_time_option_changed
         )
         self.system_time_checkbox.grid(row=6, column=0, padx=28, pady=(2, 8), sticky="w")
-
-        # --- LIVE PREVIEW OUTPUT (BOTTOM RIGHT) ---
         self.preview_textbox = customtkinter.CTkTextbox(self, width=350)
         self.preview_textbox.grid(row=1, column=2, columnspan=2, padx=(20, 20), pady=(20, 0), sticky="nsew")
         self.set_preview_output("Live preview of renamed files (first 50):\n\n")
-
-        # --- INPUT LINE (FOLDER ENTRY + BUTTONS) ---
         self.input_frame = customtkinter.CTkFrame(self)
         self.input_frame.grid(row=4, column=1, columnspan=3, padx=(20, 20), pady=(10, 10), sticky="nsew")
         self.input_frame.grid_columnconfigure(0, weight=5)
         self.input_frame.grid_columnconfigure(1, weight=1)
         self.input_frame.grid_columnconfigure(2, weight=1)
-
         self.folder_path_entry = customtkinter.CTkEntry(
             self.input_frame, placeholder_text="Select or enter target directory for renaming"
         )
         self.folder_path_entry.grid(row=0, column=0, padx=(10, 5), pady=10, sticky="nsew")
         self.folder_path_entry.bind("<KeyRelease>", lambda _: self.update_preview())
         self.folder_path_entry.bind("<<Paste>>", lambda _: self.update_preview())
-
         self.browse_button = customtkinter.CTkButton(
             self.input_frame, fg_color="transparent", border_width=2,
             text_color=("gray10", "#DCE4EE"), text="Browse", command=self.browse_directory, width=100, height=36
         )
         self.browse_button.grid(row=0, column=1, padx=(0, 5), pady=10, sticky="ew")
-
         self.rename_files_button_input = customtkinter.CTkButton(
             self.input_frame, text="Rename Files", command=self.on_rename_files_click, width=110, height=36
         )
         self.rename_files_button_input.grid(row=0, column=2, padx=(0, 10), pady=10, sticky="ew")
-
-        # Initial settings
         self.appearance_mode_optionmenu.set("Dark")
         self.scaling_optionmenu.set("100%")
         self.format_combobox.set("%Y-%m-%d_%H-%M-%S")
 
-    # --- GUI EVENTS & UTILITIES ---
     def set_status_output(self, text: str):
-        self.status_output_textbox.delete("0.0", tkinter.END)
-        self.status_output_textbox.insert("0.0", text)
+        self.status_output_textbox.insert(tkinter.END, text + "\n")
+        self.status_output_textbox.see(tkinter.END)
 
     def set_preview_output(self, text: str):
         self.preview_textbox.delete("0.0", tkinter.END)
@@ -490,10 +442,16 @@ class ExifRenameXApp(customtkinter.CTk):
         self.update_preview()
 
     def on_rename_files_click(self):
+        # Wenn Thread aktiv, jetzt stoppen!
+        if self.rename_thread and self.rename_thread.is_alive():
+            self.rename_stop_event.set()
+            return
+
         folder_path = self.folder_path_entry.get()
         if not os.path.exists(folder_path):
             self.set_status_output("Please select a valid folder path.\n")
             return
+
         use_fallback = self.use_system_time_var.get()
         files = [f for f in os.listdir(folder_path) if os.path.isfile(os.path.join(folder_path, f))]
         naming_settings = {
@@ -502,29 +460,56 @@ class ExifRenameXApp(customtkinter.CTk):
             "suffix": self.suffix_entry.get(),
             "radio_option": self.naming_style_var.get()
         }
-        progress_updater = ProgressUpdater(self, len(files))
+        self.status_queue = Queue()
+        self.rename_stop_event.clear()
 
         def process_files():
             renamed_files, files_without_metadata, errors, rename_pairs = self.rename_service.rename_files(
-                folder_path, files, naming_settings, use_fallback
+                folder_path, files, naming_settings, use_fallback, self.status_queue, self.rename_stop_event
             )
-            for idx in range(len(files)):
-                progress_updater.update(idx + 1)
-            def final_report():
-                summary = ""
-                if renamed_files:
-                    summary += "Renamed files:\n" + "\n".join(f"-> {f}" for f in renamed_files) + "\n"
-                if files_without_metadata:
-                    summary += "\nFiles without valid metadata (kept original name):\n"
-                    summary += "\n".join(f"-> {f}" for f in files_without_metadata) + "\n"
-                if errors:
-                    summary += "\nErrors encountered:\n" + "\n".join(errors)
-                if not summary:
-                    summary = "No files processed or renamed."
-                self.update_undo_button_text()
-                self.set_status_output(summary)
-            self.after(0, final_report)
-        threading.Thread(target=process_files, daemon=True).start()
+            summary = "\n---\nDone.\n"
+            if renamed_files:
+                summary += "Renamed files:\n" + "\n".join(f"-> {f}" for f in renamed_files) + "\n"
+            if files_without_metadata:
+                summary += "\nFiles without valid metadata (kept original name):\n"
+                summary += "\n".join(f"-> {f}" for f in files_without_metadata) + "\n"
+            if errors:
+                summary += "\nErrors encountered:\n" + "\n".join(errors)
+            if not summary.strip():
+                summary = "No files processed or renamed."
+            self.status_queue.put(summary)
+            self.after(0, self.update_undo_button_text)
+            self.after(0, self.reset_rename_button)
+
+        # Button: STOP (rot)
+        self.rename_files_button_input.configure(
+            text="STOP", fg_color="red", text_color="white"
+        )
+        self.rename_thread = threading.Thread(target=process_files, daemon=True)
+        self.rename_thread.start()
+        self.after(100, self.poll_status_queue)
+
+    def reset_rename_button(self):
+        self.rename_files_button_input.configure(
+            text="Rename Files",
+            fg_color=("#1f6aa5", "#1f6aa5"),
+            text_color=("white", "white"),
+            command=self.on_rename_files_click
+        )
+
+    def poll_status_queue(self):
+        output = ""
+        try:
+            while True:
+                msg = self.status_queue.get_nowait()
+                output += msg + "\n"
+        except Empty:
+            if output:
+                self.set_status_output(output)
+            if self.rename_thread and self.rename_thread.is_alive():
+                self.after(100, self.poll_status_queue)
+            else:
+                self.reset_rename_button()
 
     def on_undo_last_rename(self):
         def undo_renames():
@@ -596,8 +581,6 @@ class ExifRenameXApp(customtkinter.CTk):
 
     def change_scaling_event(self, new_scaling: str):
         customtkinter.set_widget_scaling(int(new_scaling.replace("%", "")) / 100)
-
-# --- App Entry Point ---
 
 if __name__ == "__main__":
     try:
