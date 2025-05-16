@@ -10,15 +10,9 @@ from PIL import Image
 from pillow_heif import register_heif_opener
 import exifread
 import pymediainfo
-from typing import Optional, List, Tuple, Dict
+from typing import List, Tuple, Dict
 from queue import Queue, Empty
-
-# Optional: ExifToolWrapper
-try:
-    from exiftool_wrapper import ExifToolWrapper
-    EXIFTOOL_AVAILABLE = True
-except ImportError:
-    EXIFTOOL_AVAILABLE = False
+from exiftool_wrapper import ExifToolWrapper
 
 register_heif_opener()
 
@@ -35,7 +29,7 @@ EXIFTOOL_DATE_TAGS = [
     "QuickTime:ModifyDate", "QuickTime:ContentCreateDate", "PNG:CreationTime"
 ]
 
-def parse_exiftool_datetime(dt_string: str) -> Optional[datetime.datetime]:
+def parse_exiftool_datetime(dt_string: str) -> datetime.datetime | None:
     date_formats = (
         "%Y:%m:%d %H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y:%m:%d %H:%M:%S%z",
         "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%S.%fZ", "%Y-%m-%d %H:%M:%S%z"
@@ -58,9 +52,7 @@ class MediaMetadataService:
     VIDEO_EXTENSIONS = ['.mp4', '.mov', '.3gp', '.avi', '.mkv', '.mts', '.m2ts', '.wmv']
 
     @staticmethod
-    def get_exiftool_date(file_path: str) -> Optional[datetime.datetime]:
-        if not EXIFTOOL_AVAILABLE:
-            return None
+    def get_exiftool_date(file_path: str) -> datetime.datetime | None:
         try:
             with ExifToolWrapper() as et:
                 metadata = et.get_metadata(file_path)
@@ -74,7 +66,7 @@ class MediaMetadataService:
         return None
 
     @staticmethod
-    def get_exif_date(file_path: str) -> Optional[datetime.datetime]:
+    def get_exif_date(file_path: str) -> datetime.datetime | None:
         try:
             with open(file_path, 'rb') as f:
                 tags = exifread.process_file(f, stop_tag="EXIF DateTimeOriginal", details=False)
@@ -86,7 +78,7 @@ class MediaMetadataService:
         return None
 
     @staticmethod
-    def get_heic_exif_date(file_path: str) -> Optional[datetime.datetime]:
+    def get_heic_exif_date(file_path: str) -> datetime.datetime | None:
         try:
             with Image.open(file_path) as img:
                 xmp = img.info.get('xmp')
@@ -105,7 +97,7 @@ class MediaMetadataService:
         return None
 
     @staticmethod
-    def get_media_date(file_path: str) -> Optional[datetime.datetime]:
+    def get_media_date(file_path: str) -> datetime.datetime | None:
         try:
             mi = pymediainfo.MediaInfo.parse(file_path)
             for track in mi.tracks:
@@ -133,7 +125,7 @@ class MediaMetadataService:
             return datetime.datetime.fromtimestamp(stat.st_mtime)
 
     @classmethod
-    def get_best_date(cls, file_path: str, use_fallback: bool = True) -> Optional[datetime.datetime]:
+    def get_best_date(cls, file_path: str, use_fallback: bool = True) -> datetime.datetime | None:
         ext = os.path.splitext(file_path)[1].lower()
         date = cls.get_exiftool_date(file_path)
         if date:
@@ -223,7 +215,6 @@ class RenameService:
         last_pairs = self.rename_history.pop()
         undone = []
         errors = []
-        # Rückgängig von neu zu alt
         for old_path, new_path in reversed(last_pairs):
             try:
                 if os.path.exists(new_path):
@@ -269,20 +260,28 @@ class ExifRenameXApp(customtkinter.CTk):
         self.status_queue = Queue()
         self.rename_stop_event = threading.Event()
         self.rename_thread = None
+        self._debounce_after_id = None  # For debounce of preview
         self._build_gui()
 
     def _build_gui(self):
         self.grid_columnconfigure(1, weight=1)
         self.grid_columnconfigure((2, 3), weight=0)
-        self.grid_rowconfigure((0, 1, 2), weight=1)
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=3)
+
         self.sidebar = customtkinter.CTkFrame(self, width=170, corner_radius=0)
-        self.sidebar.grid(row=0, column=0, rowspan=7, sticky="nsew")
+        self.sidebar.grid(row=0, column=0, rowspan=3, sticky="nsew")
         self.sidebar.grid_rowconfigure(4, weight=1)
         self.logo_label = customtkinter.CTkLabel(
             self.sidebar, text="EXIFrenameX",
             font=customtkinter.CTkFont(size=22, weight="bold")
         )
         self.logo_label.grid(row=0, column=0, padx=20, pady=(25, 10))
+        self.browse_button_sidebar = customtkinter.CTkButton(
+            self.sidebar, fg_color="transparent", border_width=2,
+            text_color=("gray10", "#DCE4EE"), text="Browse", command=self.browse_directory, width=130, height=36
+        )
+        self.browse_button_sidebar.grid(row=1, column=0, padx=20, pady=(0, 16), sticky="ew")
         font_options = customtkinter.CTkFont(size=12)
         self.appearance_mode_optionmenu = customtkinter.CTkOptionMenu(
             self.sidebar, values=["Light", "Dark", "System"], command=self.change_appearance_mode_event,
@@ -294,6 +293,7 @@ class ExifRenameXApp(customtkinter.CTk):
             width=90, height=28, font=font_options
         )
         self.scaling_optionmenu.grid(row=8, column=0, padx=20, pady=(2, 18), sticky="ew")
+
         self.legend_textbox = customtkinter.CTkTextbox(self, width=260)
         self.legend_textbox.grid(row=0, column=1, padx=(20, 0), pady=(20, 0), sticky="nsew")
         self.legend_textbox.insert("0.0", (
@@ -322,9 +322,7 @@ class ExifRenameXApp(customtkinter.CTk):
             "- %Z, %z: time zone name/offset\n\n"
             "Combine symbols to create custom formats.")
         )
-        self.status_output_textbox = customtkinter.CTkTextbox(self, width=270)
-        self.status_output_textbox.grid(row=1, column=1, padx=(20, 0), pady=(20, 0), sticky="nsew")
-        self.set_status_output("File processing status will appear here.")
+
         self.format_frame = customtkinter.CTkFrame(self, width=270)
         self.format_frame.grid(row=0, column=2, padx=(20, 0), pady=(20, 0), sticky="nsew")
         self.select_format_label = customtkinter.CTkLabel(
@@ -342,16 +340,19 @@ class ExifRenameXApp(customtkinter.CTk):
             self.format_frame, width=240, placeholder_text="Enter prefix for new names"
         )
         self.prefix_entry.grid(row=2, column=0, padx=20, pady=(2, 8))
-        self.prefix_entry.bind("<KeyRelease>", lambda _: self.update_preview())
+        self.prefix_entry.bind("<KeyRelease>", self.debounced_preview_update)
+        self.prefix_entry.bind("<FocusOut>", self.update_preview)
         self.suffix_entry = customtkinter.CTkEntry(
             self.format_frame, width=240, placeholder_text="Enter suffix for new names"
         )
         self.suffix_entry.grid(row=3, column=0, padx=20, pady=(2, 8))
-        self.suffix_entry.bind("<KeyRelease>", lambda _: self.update_preview())
+        self.suffix_entry.bind("<KeyRelease>", self.debounced_preview_update)
+        self.suffix_entry.bind("<FocusOut>", self.update_preview)
         self.undo_button = customtkinter.CTkButton(
             self.format_frame, text="Undo last Rename", command=self.on_undo_last_rename, state="disabled"
         )
         self.undo_button.grid(row=4, column=0, padx=20, pady=(16, 10), sticky="ew")
+
         self.pattern_fallback_frame = customtkinter.CTkFrame(self, width=270)
         self.pattern_fallback_frame.grid(row=0, column=3, padx=(20, 20), pady=(20, 0), sticky="nsew")
         self.naming_pattern_label = customtkinter.CTkLabel(
@@ -389,36 +390,66 @@ class ExifRenameXApp(customtkinter.CTk):
             command=self.on_system_time_option_changed
         )
         self.system_time_checkbox.grid(row=6, column=0, padx=28, pady=(2, 8), sticky="w")
-        self.preview_textbox = customtkinter.CTkTextbox(self, width=350)
-        self.preview_textbox.grid(row=1, column=2, columnspan=2, padx=(20, 20), pady=(20, 0), sticky="nsew")
-        self.set_preview_output("Live preview of renamed files (first 50):\n\n")
+
+        self.output_frame = customtkinter.CTkFrame(self)
+        self.output_frame.grid(row=1, column=1, columnspan=3, padx=(20, 20), pady=(10, 10), sticky="nsew")
+        self.output_frame.grid_columnconfigure(0, weight=1)
+        self.output_frame.grid_columnconfigure(1, weight=1)
+        self.output_frame.grid_rowconfigure(1, weight=1)
+
+        self.status_label = customtkinter.CTkLabel(
+            self.output_frame, text="File processing status", font=customtkinter.CTkFont(weight="bold", size=14)
+        )
+        self.status_label.grid(row=0, column=0, sticky="w", padx=(4, 0), pady=(8, 0))
+        self.status_output_textbox = customtkinter.CTkTextbox(self.output_frame)
+        self.status_output_textbox.grid(row=1, column=0, padx=(0, 8), pady=(2, 2), sticky="nsew")
+        self.set_status_output("...")
+
+        self.preview_label = customtkinter.CTkLabel(
+            self.output_frame, text="Live preview of renamed files (first 50)", font=customtkinter.CTkFont(weight="bold", size=14)
+        )
+        self.preview_label.grid(row=0, column=1, sticky="w", padx=(4, 0), pady=(8, 0))
+        self.preview_textbox = customtkinter.CTkTextbox(self.output_frame)
+        self.preview_textbox.grid(row=1, column=1, padx=(8, 0), pady=(2, 2), sticky="nsew")
+        self.set_preview_output("...")
+
         self.input_frame = customtkinter.CTkFrame(self)
-        self.input_frame.grid(row=4, column=1, columnspan=3, padx=(20, 20), pady=(10, 10), sticky="nsew")
+        self.input_frame.grid(row=2, column=1, columnspan=3, padx=(20, 20), pady=(0, 10), sticky="nsew")
         self.input_frame.grid_columnconfigure(0, weight=5)
-        self.input_frame.grid_columnconfigure(1, weight=1)
+        self.input_frame.grid_columnconfigure(1, weight=0)
         self.input_frame.grid_columnconfigure(2, weight=1)
+
         self.folder_path_entry = customtkinter.CTkEntry(
             self.input_frame, placeholder_text="Select or enter target directory for renaming"
         )
         self.folder_path_entry.grid(row=0, column=0, padx=(10, 5), pady=10, sticky="nsew")
         self.folder_path_entry.bind("<KeyRelease>", lambda _: self.update_preview())
         self.folder_path_entry.bind("<<Paste>>", lambda _: self.update_preview())
-        self.browse_button = customtkinter.CTkButton(
-            self.input_frame, fg_color="transparent", border_width=2,
-            text_color=("gray10", "#DCE4EE"), text="Browse", command=self.browse_directory, width=100, height=36
+
+        self.folder_icon_button = customtkinter.CTkButton(
+            self.input_frame,
+            width=36, height=36,
+            text="📁",
+            font=customtkinter.CTkFont(size=26, weight="bold"),
+            border_width=2,
+            fg_color="transparent",
+            hover_color="#2563eb",
+            command=self.browse_directory
         )
-        self.browse_button.grid(row=0, column=1, padx=(0, 5), pady=10, sticky="ew")
+        self.folder_icon_button.grid(row=0, column=1, padx=(0, 5), pady=10, sticky="ew")
+
         self.rename_files_button_input = customtkinter.CTkButton(
             self.input_frame, text="Rename Files", command=self.on_rename_files_click, width=110, height=36
         )
         self.rename_files_button_input.grid(row=0, column=2, padx=(0, 10), pady=10, sticky="ew")
+
         self.appearance_mode_optionmenu.set("Dark")
         self.scaling_optionmenu.set("100%")
         self.format_combobox.set("%Y-%m-%d_%H-%M-%S")
 
     def set_status_output(self, text: str):
-        self.status_output_textbox.insert(tkinter.END, text + "\n")
-        self.status_output_textbox.see(tkinter.END)
+        self.status_output_textbox.delete("0.0", tkinter.END)
+        self.status_output_textbox.insert("0.0", text)
 
     def set_preview_output(self, text: str):
         self.preview_textbox.delete("0.0", tkinter.END)
@@ -440,8 +471,12 @@ class ExifRenameXApp(customtkinter.CTk):
     def on_format_change(self, *_):
         self.update_preview()
 
+    def debounced_preview_update(self, event=None):
+        if self._debounce_after_id:
+            self.after_cancel(self._debounce_after_id)
+        self._debounce_after_id = self.after(400, self.update_preview)
+
     def on_rename_files_click(self):
-        # Wenn Thread aktiv, jetzt stoppen!
         if self.rename_thread and self.rename_thread.is_alive():
             self.rename_stop_event.set()
             return
@@ -466,7 +501,7 @@ class ExifRenameXApp(customtkinter.CTk):
             renamed_files, files_without_metadata, errors, rename_pairs = self.rename_service.rename_files(
                 folder_path, files, naming_settings, use_fallback, self.status_queue, self.rename_stop_event
             )
-            summary = "\n---\nDone.\n"
+            summary = ""
             if renamed_files:
                 summary += "Renamed files:\n" + "\n".join(f"-> {f}" for f in renamed_files) + "\n"
             if files_without_metadata:
@@ -480,7 +515,6 @@ class ExifRenameXApp(customtkinter.CTk):
             self.after(0, self.update_undo_button_text)
             self.after(0, self.reset_rename_button)
 
-        # Button: STOP (rot)
         self.rename_files_button_input.configure(
             text="STOP", fg_color="red", text_color="white"
         )
@@ -525,7 +559,7 @@ class ExifRenameXApp(customtkinter.CTk):
             self.after(0, undo_report)
         threading.Thread(target=undo_renames, daemon=True).start()
 
-    def update_preview(self):
+    def update_preview(self, event=None):
         try:
             folder_path = self.folder_path_entry.get()
             if not os.path.exists(folder_path):
@@ -559,7 +593,7 @@ class ExifRenameXApp(customtkinter.CTk):
                     if file_count >= 50:
                         break
             if preview_lines:
-                self.set_preview_output("Live preview of renamed files (first 50):\n\n" + "\n".join(preview_lines))
+                self.set_preview_output("\n".join(preview_lines))
             else:
                 self.set_preview_output("No files to preview in this directory.\n")
         except Exception as e:
@@ -568,9 +602,10 @@ class ExifRenameXApp(customtkinter.CTk):
 
     def browse_directory(self):
         folder_path = tkinter.filedialog.askdirectory()
-        self.folder_path_entry.delete(0, tkinter.END)
-        self.folder_path_entry.insert(0, folder_path)
-        self.update_preview()
+        if folder_path:
+            self.folder_path_entry.delete(0, tkinter.END)
+            self.folder_path_entry.insert(0, folder_path)
+            self.update_preview()
 
     def on_system_time_option_changed(self):
         self.update_preview()
