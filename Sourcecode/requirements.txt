@@ -1,4 +1,6 @@
+customtkinter
+pillow
+pillow-heif
 exifread
 pymediainfo
-tqdm
-customtkinter
+exiftool-wrapper
