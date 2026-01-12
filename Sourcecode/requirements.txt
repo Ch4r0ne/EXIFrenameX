@@ -1,6 +1,0 @@
-customtkinter
-pillow
-pillow-heif
-exifread
-pymediainfo
-exiftool-wrapper
