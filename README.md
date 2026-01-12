@@ -138,8 +138,21 @@ Want to contribute?
 - See [`CONTRIBUTING.md`](CONTRIBUTING.md) for setup, code guidelines, and feature requests.
 
 **Key dependencies:**  
-- [`customtkinter`](https://github.com/TomSchimansky/CustomTkinter)
-- `Pillow`, `pillow-heif`, `exifread`, `pymediainfo`, `exiftool_wrapper`
+```powershell
+py -m PyInstaller --noconfirm --clean --windowed --onefile `
+  --name "EXIFrenameX" `
+  --icon ".\assets\EXIFrenameX.ico" `
+  --add-data ".\assets;assets" `
+  --collect-all PyQt6 `
+  --collect-all pymediainfo `
+  --hidden-import PyQt6.sip `
+  --hidden-import PIL._imaging `
+  --hidden-import pillow_heif `
+  --hidden-import exifread `
+  --hidden-import exiftool_wrapper `
+  ".\EXIFrenameX.py"
+
+```
 
 ---
 
