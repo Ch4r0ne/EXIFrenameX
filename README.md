@@ -5,20 +5,6 @@
 
 ---
 
-## Table of Contents
-- [Features](#features)
-- [Screenshots](#screenshots)
-- [Getting Started](#getting-started)
-- [Usage Guide](#usage-guide)
-- [Supported File Types](#supported-file-types)
-- [FAQ](#faq)
-- [Troubleshooting](#troubleshooting)
-- [Development](#development)
-- [License](#license)
-- [Credits](#credits)
-
----
-
 ## Features
 
 - **Batch Rename:** Rename hundreds of images and videos in one go, with custom naming patterns.
@@ -28,10 +14,10 @@
 - **Undo Support:** Roll back the last rename operation with one click.
 - **Modern GUI:** Clean, intuitive interface with light/dark mode and DPI scaling.
 - **Safe:** Handles duplicate names, never overwrites files without warning.
-- **Windows-Ready:** Delivered as a portable `.exe` – no Python install needed.
+- **Windows-Ready:** Delivered as a portable `.exe` no Python install needed.
 
 ---
-
+![EXIFrenameX](Preview/EXIFrenamerX.png)
 ---
 
 ## Screenshots
@@ -139,19 +125,23 @@ Want to contribute?
 
 **Key dependencies:**  
 ```powershell
+# Windows (onefile) – EXIFrenameX + Assets inkl. exiftool.exe (mit Subordnern)
 py -m PyInstaller --noconfirm --clean --windowed --onefile `
   --name "EXIFrenameX" `
   --icon ".\assets\EXIFrenameX.ico" `
   --add-data ".\assets;assets" `
-  --collect-all PyQt6 `
-  --collect-all pymediainfo `
-  --hidden-import PyQt6.sip `
-  --hidden-import PIL._imaging `
-  --hidden-import pillow_heif `
-  --hidden-import exifread `
-  --hidden-import exiftool_wrapper `
+  --add-data ".\assets\exiftool;assets\exiftool" `
+  --collect-all "PyQt6" `
+  --hidden-import "PyQt6.QtCore" `
+  --hidden-import "PyQt6.QtGui" `
+  --hidden-import "PyQt6.QtWidgets" `
+  --hidden-import "PyQt6.sip" `
+  --hidden-import "PIL._imaging" `
+  --hidden-import "pillow_heif" `
+  --hidden-import "pymediainfo" `
+  --hidden-import "exifread" `
+  --hidden-import "exiftool_wrapper" `
   ".\EXIFrenameX.py"
-
 ```
 
 ---
