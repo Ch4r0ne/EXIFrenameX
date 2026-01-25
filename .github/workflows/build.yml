@@ -64,14 +64,12 @@ jobs:
           $ver  = "${{ env.EXIFTOOL_VER }}"
           $dest = "assets\exiftool\windows"
 
-          # Clean destination to avoid leftovers between retries
           if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
 
           $zip = Join-Path $env:TEMP "exiftool-win64.zip"
           $url = "https://sourceforge.net/projects/exiftool/files/exiftool-$ver`_64.zip/download"
 
-          # Use curl for SourceForge stability (redirects/HTML edge cases)
           & curl.exe -L --fail --retry 5 --retry-delay 2 -o $zip $url
 
           # Verify ZIP signature ("PK")
@@ -80,29 +78,21 @@ jobs:
             throw "Downloaded file is not a ZIP (missing PK header). Likely HTML/redirect content."
           }
 
-          try {
-            Add-Type -AssemblyName System.IO.Compression.FileSystem
-            [System.IO.Compression.ZipFile]::ExtractToDirectory($zip, $dest, $true)
-          }
-          catch {
-            Write-Host "ZIP extraction failed:"
-            Write-Host $_.Exception.ToString()
-            throw
-          }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [System.IO.Compression.ZipFile]::ExtractToDirectory($zip, $dest, $true)
 
-          # If archive extracted into a single top folder, flatten it.
+          # Flatten: exiftool-<ver>_64/* -> assets/exiftool/windows/
           $top = Get-ChildItem $dest -Directory | Where-Object { $_.Name -like "exiftool-*_64" } | Select-Object -First 1
           if ($top) {
             Copy-Item -Path (Join-Path $top.FullName "*") -Destination $dest -Recurse -Force
             Remove-Item $top.FullName -Recurse -Force
           }
 
-          # Normalize exe name
+          # exiftool(-k).exe -> exiftool.exe
           $kexe = Get-ChildItem $dest -File -Recurse | Where-Object { $_.Name -ieq "exiftool(-k).exe" } | Select-Object -First 1
           if (-not $kexe) { throw "exiftool(-k).exe not found after extract" }
           Copy-Item $kexe.FullName (Join-Path $dest "exiftool.exe") -Force
 
-          # Hard guardrail
           if (-not (Test-Path (Join-Path $dest "exiftool_files"))) {
             Write-Host "Directory listing:"
             Get-ChildItem -Recurse $dest | Select-Object FullName
@@ -125,11 +115,13 @@ jobs:
           curl -L --fail --retry 5 --retry-delay 2 "$url" -o "$tgz"
 
           tar -xzf "$tgz" -C "$dest"
+
           subdir="$(find "$dest" -maxdepth 1 -type d -name "Image-ExifTool-*" | head -n 1)"
           test -n "$subdir"
 
           cp -R "$subdir/"* "$dest/"
           rm -rf "$subdir"
+
           chmod +x "$dest/exiftool" || true
 
       - name: Verify ExifTool payload
@@ -147,7 +139,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          pyinstaller --noconfirm date-renamer-toolkit.spec
+          pyinstaller --noconfirm --clean date-renamer-toolkit.spec
+
+      - name: Upload build logs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-${{ runner.os }}
+          path: |
+            build/**
+            *.log
+          if-no-files-found: ignore
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
