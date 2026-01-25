@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import Tree
+from PyInstaller.building.datastruct import Tree
 
 block_cipher = None
 
@@ -8,7 +8,7 @@ datas = [
 ]
 
 a = Analysis(
-    ["EXIFrenameX.py"],   # <- wenn dein Entry anders heißt, hier anpassen
+    ["date-renamer-toolkit.py"],
     pathex=["."],
     binaries=[],
     datas=datas,
