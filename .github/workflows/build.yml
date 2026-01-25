@@ -47,6 +47,8 @@ jobs:
           test -f date-renamer-toolkit.spec
           test -f date-renamer-toolkit.py
           test -d assets
+          test -f assets/EXIFrenameX.ico
+          test -f assets/EXIFrenameX.icns
 
       - name: Install deps (pinned build toolchain)
         shell: bash
@@ -72,7 +74,6 @@ jobs:
 
           & curl.exe -L --fail --retry 5 --retry-delay 2 -o $zip $url
 
-          # Verify ZIP signature ("PK")
           $bytes = [System.IO.File]::ReadAllBytes($zip)
           if ($bytes.Length -lt 4 -or $bytes[0] -ne 0x50 -or $bytes[1] -ne 0x4B) {
             throw "Downloaded file is not a ZIP (missing PK header). Likely HTML/redirect content."
@@ -81,20 +82,17 @@ jobs:
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           [System.IO.Compression.ZipFile]::ExtractToDirectory($zip, $dest, $true)
 
-          # Flatten: exiftool-<ver>_64/* -> assets/exiftool/windows/
           $top = Get-ChildItem $dest -Directory | Where-Object { $_.Name -like "exiftool-*_64" } | Select-Object -First 1
           if ($top) {
             Copy-Item -Path (Join-Path $top.FullName "*") -Destination $dest -Recurse -Force
             Remove-Item $top.FullName -Recurse -Force
           }
 
-          # exiftool(-k).exe -> exiftool.exe
           $kexe = Get-ChildItem $dest -File -Recurse | Where-Object { $_.Name -ieq "exiftool(-k).exe" } | Select-Object -First 1
           if (-not $kexe) { throw "exiftool(-k).exe not found after extract" }
           Copy-Item $kexe.FullName (Join-Path $dest "exiftool.exe") -Force
 
           if (-not (Test-Path (Join-Path $dest "exiftool_files"))) {
-            Write-Host "Directory listing:"
             Get-ChildItem -Recurse $dest | Select-Object FullName
             throw "exiftool_files folder missing (must ship together with exiftool.exe)"
           }
@@ -115,12 +113,14 @@ jobs:
           curl -L --fail --retry 5 --retry-delay 2 "$url" -o "$tgz"
 
           tar -xzf "$tgz" -C "$dest"
-
           subdir="$(find "$dest" -maxdepth 1 -type d -name "Image-ExifTool-*" | head -n 1)"
           test -n "$subdir"
 
           cp -R "$subdir/"* "$dest/"
           rm -rf "$subdir"
+
+          # IMPORTANT: remove test suite (contains problematic Mach-O samples)
+          rm -rf "$dest/t"
 
           chmod +x "$dest/exiftool" || true
 
@@ -132,6 +132,7 @@ jobs:
             ls -la assets/exiftool/windows
           else
             ls -la assets/exiftool/macos
+            test ! -d assets/exiftool/macos/t
           fi
 
       # ---------------- BUILD ----------------
@@ -140,16 +141,6 @@ jobs:
         run: |
           set -euo pipefail
           pyinstaller --noconfirm --clean date-renamer-toolkit.spec
-
-      - name: Upload build logs (on failure)
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-logs-${{ runner.os }}
-          path: |
-            build/**
-            *.log
-          if-no-files-found: ignore
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
