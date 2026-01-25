@@ -1,120 +1,99 @@
-# EXIFrenameX ![GitHub release](https://img.shields.io/github/v/release/Ch4r0ne/EXIFrenameX?style=flat-square) ![Maintenance](https://img.shields.io/maintenance/yes/2025?style=flat-square)
+# EXIFrenameX (Date Renamer Toolkit)
 
-> **A smart batch renamer for images & videos – powered by metadata, designed for Windows.**  
-> Rename your photos & videos automatically based on EXIF, XMP, or recording date. Modern GUI, live preview, undo support.
+**EXIFrenameX** is a cross-platform **PyQt6 GUI** that renames photos and videos **in-place** using the **best available capture/creation timestamp**.  
+It prioritizes **ExifTool** (most reliable across formats), then falls back to sidecars (XMP / Google Takeout JSON), classic EXIF readers, MediaInfo, filename parsing, and optionally filesystem timestamps.
+
+---
+
+## What this app solves
+
+When you combine files from phones, cameras, WhatsApp exports, DJI drones, Google Photos Takeout, and edited media, timestamps end up inconsistent. This tool standardizes filenames deterministically:
+
+- **Stable naming format** (strftime-based)
+- **Predictable timestamp resolution order**
+- **Collision-safe** renaming (auto-appends `_1`, `_2`, …)
+- **Preview-first workflow** + **Undo for the last run (same session)**
 
 ---
 
 ## Features
 
-- **Batch Rename:** Rename hundreds of images and videos in one go, with custom naming patterns.
-- **Metadata-Based:** Extracts date/time from EXIF, XMP, or video media metadata (fallback to file system if missing).
-- **Live Preview:** Instantly see how your files will be renamed – first 50 results shown in real time.
-- **Flexible Naming:** Supports prefix, suffix, date/time formatting, and merge options for original filenames.
-- **Undo Support:** Roll back the last rename operation with one click.
-- **Modern GUI:** Clean, intuitive interface with light/dark mode and DPI scaling.
-- **Safe:** Handles duplicate names, never overwrites files without warning.
-- **Windows-Ready:** Delivered as a portable `.exe` no Python install needed.
-
----
-![EXIFrenameX](Preview/EXIFrenamerX.png)
----
-
-## Screenshots
-
-### Before Renaming
-
-<img src="Sourcecode/Preview/EXIFrenameX_not_renamed.png" alt="Not Renamed" width="700"/>
-
-*Original folder view: File names are unsorted and not descriptive.*
+- **Auto-preview**: changing options triggers rescans (debounced).
+- **Rename patterns**
+  - `Date only` → `2026-01-25_14-03-09.jpg`
+  - `Date + Original` → `2026-01-25_14-03-09_IMG_1234.jpg`
+  - `Original only` → `IMG_1234.jpg` (prefix/suffix optional)
+  - `Original + Date` → `IMG_1234_2026-01-25_14-03-09.jpg`
+- **Deep analysis (optional toggles)**
+  - Parse date from filename (WhatsApp / IMG / DJI patterns)
+  - Read `.xmp` sidecar (Adobe/Lightroom/exports)
+  - Read Google Takeout `.json` sidecar (timestamp-based)
+- **Fallback modes** (optional)
+  - File created time
+  - File modified time
+  - OFF (skip files without a timestamp)
+- **Recursive scanning** (include subfolders)
+- **Logs viewer** for troubleshooting
+- **Dark UI theme** + platform-neutral checkbox rendering
 
 ---
 
-### After Renaming
+## How timestamps are chosen (deterministic order)
 
-<img src="Sourcecode/Preview/EXIFrenameX_renamed.png" alt="Renamed" width="700"/>
+For each file, the tool resolves a timestamp in this order:
 
-*Files after batch renaming with EXIFrenameX: All files are named by their recording date, clean and consistent.*
+1. **ExifTool** (preferred, if available)
+   - It checks these tags (in order):
+     - `EXIF:DateTimeOriginal`, `EXIF:CreateDate`, `XMP:CreateDate`, `XMP:DateCreated`,
+       QuickTime creation tags, file dates, composite tags, PNG creation time, …
+2. **Google Takeout JSON sidecar** (`<file>.<ext>.json`)
+3. **XMP sidecar** (`<file>.xmp` or `<file>.<ext>.xmp`)
+4. **Classic EXIF parsing** via `exifread` (images)
+5. **HEIC embedded XMP** via Pillow + pillow-heif (if present)
+6. **MediaInfo** (`pymediainfo`) for videos
+7. **Filename parsing** (if enabled)
+8. **Filesystem fallback** (created/modified) if enabled  
+9. Otherwise → **SKIP (missing timestamp)**
+
+In the Preview table you can hover rows to see the **source** and timestamp used.
 
 ---
 
-## Getting Started
+## Filename patterns recognized (deep filename mode)
 
-### Download
+- `IMG_YYYYMMDD_HHMMSS` / `VID_YYYYMMDD_HHMMSS`  
+- `YYYY-MM-DD_HH-MM-SS`
+- WhatsApp style: `IMG-YYYYMMDD-WA####`
+- DJI style: `DJI_YYYYMMDD_HHMMSS`
 
-1. Download the latest `.exe` release from [GitHub Releases](https://github.com/Ch4r0ne/EXIFrenameX/releases).
-2. Extract and run `EXIFrenameX.exe` on your Windows machine.
+---
 
-_No Python installation or additional dependencies required!_
+## Requirements
 
-### For Developers
+- Python **3.10+** (recommended)
+- PyQt6
+- Optional (recommended for best results):
+  - **ExifTool** available as `exiftool` in PATH **or** via `exiftool_wrapper`
+  - `exifread` (classic EXIF)
+  - `pymediainfo` (videos)
+  - `Pillow` + `pillow-heif` (HEIC support)
 
-Clone and run locally:
+---
+
+## Installation (from source)
+
+### 1) Create venv + install
 ```bash
-git clone https://github.com/Ch4r0ne/EXIFrenameX.git
-cd EXIFrenameX
-pip install -r requirements.txt
-python EXIFrenameX.pyw
+python -m venv .venv
+# Windows:
+.venv\Scripts\activate
+# macOS/Linux:
+source .venv/bin/activate
+
+pip install -U pip
+pip install PyQt6
+pip install exifread pillow pillow-heif pymediainfo exiftool-wrapper
 ```
-
-## Usage Guide
-
-### 1. Select a Folder  
-Click **Browse** to select the directory containing your photos/videos.
-
-### 2. Choose a Naming Format  
-Select a date/time format from the dropdown. Add optional prefix/suffix as needed.
-
-### 3. Select Merge Mode  
-Choose how the new name should combine with the original name:
-- Date only
-- Date + Original
-- Original only
-- Original + Date
-
-### 4. Preview  
-See the preview box for the first 50 file rename results, updated live as you change options.
-
-### 5. Rename  
-When satisfied, click **Rename Files**. Undo is available if you need to roll back.
-
----
-
-## Supported File Types
-
-- **Images:**  
-  `.jpg`, `.jpeg`, `.png`, `.heic`, `.tiff`, `.bmp`, `.arw`, `.nef`, `.cr2`, `.orf`, `.rw2`, `.rwl`, `.srw`
-- **Videos:**  
-  `.mp4`, `.mov`, `.3gp`, `.avi`, `.mkv`, `.mts`, `.m2ts`, `.wmv`
-
-> **Note:** Most RAW image types and common video formats are supported. The app falls back to file system date if metadata is missing.
-
----
-
-## FAQ
-
-**Q: What if files have no metadata?**  
-A: The app can use the file system creation/modification date as a fallback (enable/disable in options).
-
-**Q: Will my files be overwritten?**  
-A: No, the app will never overwrite existing files. In case of duplicate names, a number is appended automatically.
-
-**Q: How can I undo a rename operation?**  
-A: Click the **Undo last Rename** button to revert the previous batch.
-
----
-
-## Troubleshooting
-
-- **App won't start:**  
-  - Ensure all files from the release `.zip` are extracted.
-  - Try running as administrator if accessing protected folders.
-- **Some files not renamed:**  
-  - Check if they are supported file types.
-  - Check for missing metadata (see FAQ above).
-- **Still issues?**  
-  - See `exifrenamex.log` for details, or [open an issue](https://github.com/Ch4r0ne/EXIFrenameX/issues).
-
 ---
 
 ## Development
