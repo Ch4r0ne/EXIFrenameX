@@ -40,8 +40,8 @@ jobs:
         run: |
           set -euo pipefail
           test -f requirements.txt
-          test -f date-renamer-toolkit.spec
-          test -f date-renamer-toolkit.py
+          test -f date-renamer.spec
+          test -f date-renamer.py
           test -d assets
 
           # Branding assets must exist (at least one per OS)
