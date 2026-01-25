@@ -1,7 +1,6 @@
 [![Release](https://img.shields.io/github/v/release/Ch4r0ne/date-renamer?display_name=tag&sort=semver)](https://github.com/Ch4r0ne/date-renamer/releases)
 [![Last Commit](https://img.shields.io/github/last-commit/Ch4r0ne/date-renamer)](https://github.com/Ch4r0ne/date-renamer/commits/main)
 [![Build](https://img.shields.io/github/actions/workflow/status/Ch4r0ne/date-renamer/build.yml?branch=main)](https://github.com/Ch4r0ne/date-renamer/actions)
-[![Pylint](https://img.shields.io/github/actions/workflow/status/Ch4r0ne/date-renamer/pylint.yml?branch=main&label=pylint)](https://github.com/Ch4r0ne/date-renamer/actions)
 [![License](https://img.shields.io/github/license/Ch4r0ne/date-renamer)](LICENSE)
 ![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue)
 ![Python](https://img.shields.io/badge/python-3.10%2B-informational)
