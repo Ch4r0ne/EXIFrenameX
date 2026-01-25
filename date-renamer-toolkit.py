@@ -1039,15 +1039,18 @@ class UndoWorker(QObject):
     finished = pyqtSignal(int, int)  # undone, errors
     failed = pyqtSignal(str)
 
-    def __init__(self, pairs: List[Tuple[Path, Path]]):
+    def __init__(self, pairs: List[Tuple[Path, Path]], cancel_event: Optional[threading.Event] = None):
         super().__init__()
         self.pairs = pairs
+        self.cancel = cancel_event or threading.Event()
 
     def run(self) -> None:
         undone = 0
         errors = 0
         try:
             for src, dst in reversed(self.pairs):
+                if self.cancel.is_set():
+                    break
                 if dst.exists() and not src.exists():
                     try:
                         dst.rename(src)
@@ -1315,6 +1318,10 @@ class MainWindow(QMainWindow):
         self._rename_thread: Optional[QThread] = None
         self._rename_worker: Optional[RenameWorker] = None
         self._rename_cancel = threading.Event()
+
+        self._undo_thread: Optional[QThread] = None
+        self._undo_worker: Optional[UndoWorker] = None
+        self._undo_cancel = threading.Event()
 
         self._undo_pairs: List[Tuple[Path, Path]] = []
 
@@ -1855,6 +1862,8 @@ class MainWindow(QMainWindow):
             self._scan_cancel.set()
         if self._rename_thread is not None:
             self._rename_cancel.set()
+        if self._undo_thread is not None:
+            self._undo_cancel.set()
 
     def _request_scan_restart(self) -> None:
         if self._scan_thread is None:
@@ -1866,7 +1875,8 @@ class MainWindow(QMainWindow):
     def _primary_action(self) -> None:
         scanning = self._scan_thread is not None
         renaming = self._rename_thread is not None
-        if scanning or renaming:
+        undoing = self._undo_thread is not None
+        if scanning or renaming or undoing:
             self._stop_all()
             return
         self._start_rename()
@@ -2160,8 +2170,25 @@ class MainWindow(QMainWindow):
         self._rename_worker = None
         self._update_ui_state()
 
+    def _cleanup_undo(self) -> None:
+        try:
+            if self._undo_worker is not None:
+                self._undo_worker.deleteLater()
+        except Exception:
+            pass
+        try:
+            if self._undo_thread is not None:
+                self._undo_thread.deleteLater()
+        except Exception:
+            pass
+        self._undo_worker = None
+        self._undo_thread = None
+        self._update_ui_state()
+
     def _undo_last(self) -> None:
         if not self._undo_pairs:
+            return
+        if self._undo_thread is not None:
             return
         res = QMessageBox.question(
             self,
@@ -2178,9 +2205,10 @@ class MainWindow(QMainWindow):
         dlg.setStandardButtons(QMessageBox.StandardButton.NoButton)
         dlg.show()
 
-        t = QThread()
-        w = UndoWorker(self._undo_pairs)
-        w.moveToThread(t)
+        self._undo_cancel = threading.Event()
+        self._undo_thread = QThread()
+        self._undo_worker = UndoWorker(list(self._undo_pairs), self._undo_cancel)
+        self._undo_worker.moveToThread(self._undo_thread)
 
         def done(undone: int, errors: int) -> None:
             dlg.hide()
@@ -2199,20 +2227,22 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Undo error", msg)
             self._update_ui_state()
 
-        t.started.connect(w.run)
-        w.finished.connect(done)
-        w.failed.connect(fail)
-        w.finished.connect(t.quit)
-        w.failed.connect(t.quit)
-        t.finished.connect(t.deleteLater)
-        t.start()
+        self._undo_thread.started.connect(self._undo_worker.run)
+        self._undo_worker.finished.connect(done)
+        self._undo_worker.failed.connect(fail)
+        self._undo_worker.finished.connect(self._undo_thread.quit)
+        self._undo_worker.failed.connect(self._undo_thread.quit)
+        self._undo_thread.finished.connect(self._cleanup_undo)
+        self._undo_thread.start()
+        self._update_ui_state()
 
     # ---------- UI State ----------
     def _update_ui_state(self, initial: bool = False) -> None:
         folder_ok = Path(self.ed_folder.text().strip()).is_dir()
         scanning = self._scan_thread is not None
         renaming = self._rename_thread is not None
-        busy = scanning or renaming
+        undoing = self._undo_thread is not None
+        busy = scanning or renaming or undoing
 
         self.btn_open.setEnabled(folder_ok and not busy)
         self.btn_browse.setEnabled(not busy)
