@@ -1,3 +1,11 @@
+"""Date Renamer GUI app for organizing media files by capture time."""
+
+# pylint: disable=missing-class-docstring,missing-function-docstring
+# pylint: disable=line-too-long,invalid-name,too-many-branches,too-many-return-statements
+# pylint: disable=too-many-arguments,too-many-positional-arguments,too-many-locals
+# pylint: disable=too-many-statements,too-few-public-methods,too-many-instance-attributes
+# pylint: disable=broad-exception-caught,too-many-lines,no-name-in-module
+
 from __future__ import annotations
 
 import datetime as _dt
@@ -84,12 +92,6 @@ try:
     import pymediainfo  # type: ignore
 except Exception:
     pymediainfo = None
-
-try:
-    from exiftool_wrapper import ExifToolWrapper  # type: ignore
-except Exception:
-    ExifToolWrapper = None
-
 
 APP_NAME = "Date Renamer"
 APP_ORG = "TimTools"
@@ -377,13 +379,13 @@ class ExifToolSession:
         if not self._cmd:
             raise RuntimeError("ExifTool not resolved")
 
-        kwargs: Dict[str, Any] = dict(
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
+        kwargs: Dict[str, Any] = {
+            "stdout": subprocess.PIPE,
+            "stderr": subprocess.PIPE,
+            "text": True,
+            "encoding": "utf-8",
+            "errors": "replace",
+        }
 
         if sys.platform.startswith("win"):
             creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -392,7 +394,7 @@ class ExifToolSession:
             kwargs["creationflags"] = creationflags
             kwargs["startupinfo"] = startupinfo
 
-        return subprocess.run(self._cmd + args, **kwargs)
+        return subprocess.run(self._cmd + args, check=False, **kwargs)
 
     def _probe(self, cmd: List[str]) -> bool:
         try:
@@ -576,7 +578,7 @@ class MetadataReader:
                     v = data.get(k)
                     if v:
                         s = str(v).replace("T", " ")
-                        s = s.split("+")[0].strip()
+                        s = s.split("+", maxsplit=1)[0].strip()
                         dt = parse_datetime_any(s)
                         if dt:
                             return dt
@@ -1595,7 +1597,7 @@ class MainWindow(QMainWindow):
         grid.addWidget(QLabel("Prefix"), r, 0)
         grid.addWidget(self.ed_prefix, r, 1)
         r += 1
-        
+
         grid.addWidget(QLabel("Suffix"), r, 0)
         grid.addWidget(self.ed_suffix, r, 1)
         r += 1
