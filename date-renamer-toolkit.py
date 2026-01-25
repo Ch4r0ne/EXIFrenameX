@@ -7,6 +7,7 @@ import re
 import subprocess
 import sys
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
@@ -339,9 +340,34 @@ class ExifToolSession:
         self._version: str = ""
         self._resolve()
 
+    def _run_exiftool(self, args: List[str]) -> subprocess.CompletedProcess[str]:
+        """
+        Run exiftool without flashing a console window on Windows.
+        """
+        if not self._cmd:
+            raise RuntimeError("ExifTool not resolved")
+
+        kwargs: Dict[str, Any] = dict(
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+
+        if sys.platform.startswith("win"):
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            startupinfo = subprocess.STARTUPINFO()  # type: ignore[attr-defined]
+            startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
+            kwargs["creationflags"] = creationflags
+            kwargs["startupinfo"] = startupinfo
+
+        return subprocess.run(self._cmd + args, **kwargs)
+
     def _probe(self, cmd: List[str]) -> bool:
         try:
-            p = subprocess.run(cmd + ["-ver"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            self._cmd = cmd
+            p = self._run_exiftool(["-ver"])
             if p.returncode == 0:
                 self._version = (p.stdout or "").strip()
                 return True
@@ -390,17 +416,47 @@ class ExifToolSession:
             return {}
         return self._cli_metadata(file_path)
 
-    def _cli_metadata(self, file_path: str) -> Dict[str, Any]:
+    def metadata_many(self, file_paths: List[str]) -> Dict[str, Dict[str, Any]]:
+        """
+        Fetch metadata for many files in ONE exiftool call.
+        Returns map: SourceFile -> metadata dict.
+        """
+        if not self._cmd or not file_paths:
+            return {}
+
+        tag_args = [f"-{t}" for t in EXIFTOOL_DATE_TAGS] + [
+            "-DateTimeOriginal",
+            "-CreateDate",
+            "-MediaCreateDate",
+        ]
+
         try:
-            p = subprocess.run(
-                self._cmd + ["-j", "-G", "-s", file_path],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
+            p = self._run_exiftool(["-j", "-G", "-s"] + tag_args + file_paths)
             if p.returncode != 0:
                 return {}
-            arr = json.loads(p.stdout)
+            arr = json.loads(p.stdout or "[]")
+            out: Dict[str, Dict[str, Any]] = {}
+            if isinstance(arr, list):
+                for d in arr:
+                    if isinstance(d, dict):
+                        sf = str(d.get("SourceFile") or "")
+                        if sf:
+                            out[sf] = d
+            return out
+        except Exception:
+            return {}
+
+    def _cli_metadata(self, file_path: str) -> Dict[str, Any]:
+        try:
+            tag_args = [f"-{t}" for t in EXIFTOOL_DATE_TAGS] + [
+                "-DateTimeOriginal",
+                "-CreateDate",
+                "-MediaCreateDate",
+            ]
+            p = self._run_exiftool(["-j", "-G", "-s"] + tag_args + [file_path])
+            if p.returncode != 0:
+                return {}
+            arr = json.loads(p.stdout or "[]")
             if isinstance(arr, list) and arr and isinstance(arr[0], dict):
                 return arr[0]
         except Exception:
@@ -528,18 +584,25 @@ class MetadataReader:
                 return None
         return None
 
-    def best_datetime(self, p: Path, exiftool: Optional[ExifToolSession]) -> Tuple[Optional[_dt.datetime], str]:
+    def best_datetime(
+        self,
+        p: Path,
+        exiftool: Optional[ExifToolSession],
+        exiftool_md: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[Optional[_dt.datetime], str]:
         # 1) ExifTool FIRST if available (Windows/macOS)
-        if exiftool is not None and exiftool.available():
-            md = exiftool.metadata(str(p))
+        if exiftool_md is None and exiftool is not None and exiftool.available():
+            exiftool_md = exiftool.metadata(str(p))
+
+        if exiftool_md:
             for tag in EXIFTOOL_DATE_TAGS:
-                if tag in md:
-                    dt = parse_datetime_any(str(md[tag]))
+                if tag in exiftool_md:
+                    dt = parse_datetime_any(str(exiftool_md[tag]))
                     if dt:
                         return dt, f"exiftool:{tag}"
             for tag in ("DateTimeOriginal", "CreateDate", "MediaCreateDate"):
-                if tag in md:
-                    dt = parse_datetime_any(str(md[tag]))
+                if tag in exiftool_md:
+                    dt = parse_datetime_any(str(exiftool_md[tag]))
                     if dt:
                         return dt, f"exiftool:{tag}"
 
@@ -672,6 +735,17 @@ class PreviewModel(QAbstractTableModel):
         self.rows = rows
         self.endResetModel()
 
+    def clear(self) -> None:
+        self.beginResetModel()
+        self.rows = []
+        self.endResetModel()
+
+    def append_row(self, row: PreviewRow) -> None:
+        r = len(self.rows)
+        self.beginInsertRows(QModelIndex(), r, r)
+        self.rows.append(row)
+        self.endInsertRows()
+
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
         return 0 if parent.isValid() else len(self.rows)
 
@@ -733,6 +807,7 @@ class PreviewFilter(QSortFilterProxyModel):
 # Workers
 # =========================
 class ScanWorker(QObject):
+    row_ready = pyqtSignal(object, int, int, int)  # row, processed, total, meta_ok
     finished = pyqtSignal(list, int, int, str)  # rows, total_files, meta_ok, exiftool_info
     failed = pyqtSignal(str)
 
@@ -747,6 +822,8 @@ class ScanWorker(QObject):
         pattern: str,
         exiftool_mode: str,
         cancel_event: threading.Event,
+        parallel_scan: bool,
+        parallel_workers: str,
     ):
         super().__init__()
         self.folder = folder
@@ -758,6 +835,8 @@ class ScanWorker(QObject):
         self.pattern = pattern
         self.exiftool_mode = exiftool_mode
         self.cancel = cancel_event
+        self.parallel_scan = parallel_scan
+        self.parallel_workers = parallel_workers
 
     def _iter_files(self) -> Iterable[Path]:
         if not self.recursive:
@@ -775,36 +854,113 @@ class ScanWorker(QObject):
                 self.failed.emit("Folder does not exist.")
                 return
 
+            files = list(self._iter_files())
+            total = len(files)
+
+            def _norm(s: str) -> str:
+                return os.path.normcase(os.path.normpath(s))
+
             rows: List[PreviewRow] = []
-            total = 0
-            meta_ok = 0
             used: Dict[Path, set[str]] = {}
 
             with ExifToolSession(mode=self.exiftool_mode) as exiftool:
                 info = exiftool.info()
                 log(f"[scan] {info}")
 
-                for p in self._iter_files():
-                    if self.cancel.is_set():
-                        break
-                    total += 1
+                exif_map: Dict[str, Dict[str, Any]] = {}
+                if exiftool.available() and total:
+                    chunk_size = 200
+                    for i in range(0, total, chunk_size):
+                        if self.cancel.is_set():
+                            break
+                        chunk = files[i : i + chunk_size]
+                        md = exiftool.metadata_many([str(p) for p in chunk])
+                        for k, v in md.items():
+                            exif_map[_norm(k)] = v
 
-                    dt, src = self.reader.best_datetime(p, exiftool)
-                    if dt is not None:
-                        meta_ok += 1
+                def process_one(idx: int, p: Path) -> Tuple[int, PreviewRow, bool]:
+                    if self.cancel.is_set():
+                        row = PreviewRow(p.name, "(cancelled)", None, "cancelled", p, "SKIP (cancelled)")
+                        return idx, row, False
+
+                    md = exif_map.get(_norm(str(p)))
+                    dt, src = self.reader.best_datetime(p, exiftool=None, exiftool_md=md)
+                    ok = dt is not None
 
                     new = format_new_name(dt, p.name, self.fmt, self.prefix, self.suffix, self.pattern)
                     if new is None:
-                        rows.append(PreviewRow(p.name, "(no timestamp)", dt, src, p, "SKIP (missing timestamp)"))
-                        continue
+                        row = PreviewRow(p.name, "(no timestamp)", dt, src, p, "SKIP (missing timestamp)")
+                        return idx, row, ok
 
-                    folder = p.parent
-                    if folder not in used:
-                        used[folder] = set()
-                    new_unique = unique_name_in_folder(folder, new, used[folder])
-                    rows.append(PreviewRow(p.name, new_unique, dt, src, p, "OK"))
+                    row = PreviewRow(p.name, new, dt, src, p, "OK")
+                    return idx, row, ok
 
-            self.finished.emit(rows, total, meta_ok, info)
+                def resolve_workers() -> int:
+                    if (self.parallel_workers or "").strip().lower() != "auto":
+                        try:
+                            n = int(self.parallel_workers)
+                            return max(1, min(32, n))
+                        except Exception:
+                            pass
+                    cpu = os.cpu_count() or 4
+                    return max(4, min(12, cpu * 2))
+
+                parallel = bool(self.parallel_scan) and total > 1
+
+                results: Dict[int, Tuple[PreviewRow, bool]] = {}
+                next_emit = 0
+                processed = 0
+                meta_ok = 0
+
+                def emit_ready_up_to() -> None:
+                    nonlocal next_emit, processed, meta_ok
+                    while next_emit in results:
+                        row, ok = results.pop(next_emit)
+                        if row.status == "OK":
+                            folder = row.path.parent
+                            if folder not in used:
+                                used[folder] = set()
+                            row = PreviewRow(
+                                row.old_name,
+                                unique_name_in_folder(folder, row.new_name, used[folder]),
+                                row.dt,
+                                row.source,
+                                row.path,
+                                row.status,
+                            )
+
+                        rows.append(row)
+                        processed += 1
+                        if ok:
+                            meta_ok += 1
+                        self.row_ready.emit(row, processed, total, meta_ok)
+                        next_emit += 1
+
+                if not parallel:
+                    for idx, p in enumerate(files):
+                        if self.cancel.is_set():
+                            break
+                        i, row, ok = process_one(idx, p)
+                        results[i] = (row, ok)
+                        emit_ready_up_to()
+
+                    self.finished.emit(rows, total, meta_ok, info)
+                    return
+
+                workers = resolve_workers()
+                log(f"[scan] parallel workers={workers}")
+
+                with ThreadPoolExecutor(max_workers=workers) as pool:
+                    futures = [pool.submit(process_one, idx, p) for idx, p in enumerate(files)]
+                    for fut in as_completed(futures):
+                        if self.cancel.is_set():
+                            break
+                        idx, row, ok = fut.result()
+                        results[idx] = (row, ok)
+                        emit_ready_up_to()
+
+                emit_ready_up_to()
+                self.finished.emit(rows, total, meta_ok, info)
 
         except Exception as e:
             self.failed.emit(f"{type(e).__name__}: {e}")
@@ -1246,10 +1402,6 @@ class MainWindow(QMainWindow):
         self.cmb_fallback.setCurrentText(FallbackMode.OFF)
         self.cmb_fallback.currentIndexChanged.connect(lambda: self._debounce.start())
 
-        self.cb_filename_date = QCheckBox("Use filename date when metadata is missing (recommended)")
-        self.cb_filename_date.setChecked(True)
-        self.cb_filename_date.stateChanged.connect(lambda: self._debounce.start())
-
         self.cb_recursive = QCheckBox("Include subfolders (recursive)")
         self.cb_recursive.setChecked(True)
         self.cb_recursive.stateChanged.connect(lambda: self._debounce.start())
@@ -1273,9 +1425,6 @@ class MainWindow(QMainWindow):
 
         grid.addWidget(QLabel("Fallback if missing"), r, 0)
         grid.addWidget(self.cmb_fallback, r, 1, 1, 2)
-        r += 1
-
-        grid.addWidget(self.cb_filename_date, r, 0, 1, 3)
         r += 1
 
         grid.addWidget(self.cb_recursive, r, 0, 1, 3)
@@ -1320,6 +1469,25 @@ class MainWindow(QMainWindow):
 
         adv_l.addWidget(self.cb_deep_xmp)
         adv_l.addWidget(self.cb_deep_takeout)
+
+        self.cb_filename_date = QCheckBox("Deep: use filename date when metadata is missing")
+        self.cb_filename_date.setChecked(False)
+        self.cb_filename_date.stateChanged.connect(lambda: self._debounce.start())
+        adv_l.addWidget(self.cb_filename_date)
+
+        self.cb_parallel_scan = QCheckBox("Performance: parallel scan (recommended)")
+        self.cb_parallel_scan.setChecked(True)
+        self.cb_parallel_scan.stateChanged.connect(lambda: self._debounce.start())
+        adv_l.addWidget(self.cb_parallel_scan)
+
+        rowp = QHBoxLayout()
+        rowp.addWidget(QLabel("Parallel workers"))
+        self.cmb_parallel_workers = QComboBox()
+        self.cmb_parallel_workers.addItems(["Auto", "4", "6", "8", "12", "16"])
+        self.cmb_parallel_workers.setCurrentText("Auto")
+        self.cmb_parallel_workers.currentIndexChanged.connect(lambda: self._debounce.start())
+        rowp.addWidget(self.cmb_parallel_workers, 1)
+        adv_l.addLayout(rowp)
 
         cn.addSpacing(6)
         cn.addWidget(self.btn_adv, alignment=Qt.AlignmentFlag.AlignLeft)
@@ -1435,9 +1603,11 @@ class MainWindow(QMainWindow):
         if i >= 0:
             self.cmb_fallback.setCurrentIndex(i)
 
-        self.cb_filename_date.setChecked(self.settings.value("deep/filename", True, type=bool))
+        self.cb_filename_date.setChecked(self.settings.value("deep/filename", False, type=bool))
         self.cb_deep_xmp.setChecked(self.settings.value("deep/xmp", True, type=bool))
         self.cb_deep_takeout.setChecked(self.settings.value("deep/takeout", True, type=bool))
+        self.cb_parallel_scan.setChecked(self.settings.value("perf/parallel_scan", True, type=bool))
+        self.cmb_parallel_workers.setCurrentText(self.settings.value("perf/parallel_workers", "Auto", type=str))
 
     def _save_settings(self) -> None:
         self.settings.setValue("folder/path", self.ed_folder.text().strip())
@@ -1450,6 +1620,8 @@ class MainWindow(QMainWindow):
         self.settings.setValue("deep/filename", self.cb_filename_date.isChecked())
         self.settings.setValue("deep/xmp", self.cb_deep_xmp.isChecked())
         self.settings.setValue("deep/takeout", self.cb_deep_takeout.isChecked())
+        self.settings.setValue("perf/parallel_scan", self.cb_parallel_scan.isChecked())
+        self.settings.setValue("perf/parallel_workers", self.cmb_parallel_workers.currentText())
 
     # ---------- Actions ----------
     def _toggle_advanced(self, checked: bool) -> None:
@@ -1511,7 +1683,7 @@ class MainWindow(QMainWindow):
         folder_txt = self.ed_folder.text().strip()
         folder = Path(folder_txt) if folder_txt else None
         if folder is None or not folder.exists() or not folder.is_dir():
-            self.model.set_rows([])
+            self.model.clear()
             self.lbl_counts.setText("Files: 0   |   Metadata: 0/0")
             self._update_ui_state()
             self._fit_columns_initial()
@@ -1528,6 +1700,8 @@ class MainWindow(QMainWindow):
         suffix = self.ed_suffix.text()
         pattern = self.cmb_pattern.currentText()
         exiftool_mode = getattr(self, "cmb_exiftool", None).currentText() if hasattr(self, "cmb_exiftool") else ExifToolMode.AUTO
+        parallel_scan = self.cb_parallel_scan.isChecked()
+        parallel_workers = self.cmb_parallel_workers.currentText()
 
         self._scan_thread = QThread()
         self._scan_worker = ScanWorker(
@@ -1540,10 +1714,16 @@ class MainWindow(QMainWindow):
             pattern=pattern,
             exiftool_mode=exiftool_mode,
             cancel_event=self._scan_cancel,
+            parallel_scan=parallel_scan,
+            parallel_workers=parallel_workers,
         )
         self._scan_worker.moveToThread(self._scan_thread)
 
+        self.model.clear()
+        self.lbl_counts.setText("Files: 0   |   Metadata: 0/0")
+
         self._scan_thread.started.connect(self._scan_worker.run)
+        self._scan_worker.row_ready.connect(self._on_scan_row_ready)
         self._scan_worker.finished.connect(self._on_scan_finished)
         self._scan_worker.failed.connect(self._on_scan_failed)
 
@@ -1553,6 +1733,11 @@ class MainWindow(QMainWindow):
 
         self._scan_thread.start()
         self._update_ui_state()
+
+    def _on_scan_row_ready(self, row_obj: object, processed: int, total: int, meta_ok: int) -> None:
+        if isinstance(row_obj, PreviewRow):
+            self.model.append_row(row_obj)
+            self.lbl_counts.setText(f"Files: {processed}/{total}   |   Metadata: {meta_ok}/{processed}")
 
     def _on_scan_finished(self, rows: list, total: int, meta_ok: int, exiftool_info: str) -> None:
         rows = list(rows)
@@ -1697,7 +1882,8 @@ class MainWindow(QMainWindow):
 
         for w in (
             self.cb_recursive, self.cmb_fallback, self.cmb_format, self.ed_prefix, self.ed_suffix,
-            self.cmb_pattern, self.btn_adv, self.cb_filename_date, self.cb_deep_xmp, self.cb_deep_takeout, self.cmb_exiftool
+            self.cmb_pattern, self.btn_adv, self.cb_filename_date, self.cb_deep_xmp, self.cb_deep_takeout,
+            self.cmb_exiftool, self.cb_parallel_scan, self.cmb_parallel_workers
         ):
             w.setEnabled(not renaming)
 
