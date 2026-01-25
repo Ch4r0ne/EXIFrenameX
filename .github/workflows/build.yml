@@ -1,13 +1,25 @@
 name: build
 
 on:
+  # Manual trigger (quick testing after code changes)
   workflow_dispatch:
+
+  # CI builds for code changes (NO releases created here)
   push:
-    tags: ["v*"]
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+  # Attach binaries ONLY when you create a GitHub Release
+  release:
+    types: [created]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
+
+permissions:
+  contents: write  # Required to upload assets to a GitHub Release
 
 env:
   EXIFTOOL_VER: "13.45"
@@ -97,7 +109,7 @@ jobs:
           if (-not (Test-Path $filesDir)) { throw "exiftool_files missing" }
           Copy-Item $filesDir (Join-Path $dest "exiftool_files") -Recurse -Force
 
-          # quick verify
+          # Quick verify
           & (Join-Path $dest "exiftool.exe") -ver
 
       # --------------------
@@ -123,13 +135,13 @@ jobs:
           cp -R "$subdir/"* "$dest/"
           rm -rf "$subdir"
 
-          # remove test-suite (important for PyInstaller + size)
+          # Remove test suite (important for PyInstaller + size)
           rm -rf "$dest/t"
 
-          # make executable (build-time)
+          # Make executable (build-time)
           chmod +x "$dest/exiftool" || true
 
-          # verify (uses system perl)
+          # Verify (uses system perl)
           perl "$dest/exiftool" -ver
 
       - name: Clean build output
@@ -138,25 +150,106 @@ jobs:
           set -euo pipefail
           rm -rf dist build
 
-      - name: Build (onefile)
+      - name: Build (PyInstaller)
         shell: bash
         run: |
           set -euo pipefail
           pyinstaller --noconfirm --clean date-renamer.spec
 
-      # Upload ONLY the single output
-      - name: Upload artifact (Windows exe)
+      # --------------------
+      # Normalize output names (stable filenames for assets)
+      # --------------------
+      - name: Normalize output filename (Windows)
         if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference="Stop"
+          if (!(Test-Path "dist/DateRenamer.exe")) { throw "dist/DateRenamer.exe not found" }
+          Move-Item -Force "dist/DateRenamer.exe" "dist/DateRenamer-windows.exe"
+
+      - name: Normalize output filename (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f "dist/DateRenamer"
+          mv "dist/DateRenamer" "dist/DateRenamer-macos"
+          chmod +x "dist/DateRenamer-macos" || true
+
+      # --------------------
+      # Checksums
+      # --------------------
+      - name: SHA256 (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $h = (Get-FileHash "dist/DateRenamer-windows.exe" -Algorithm SHA256).Hash.ToLower()
+          "$h  DateRenamer-windows.exe" | Out-File -Encoding ascii "dist/DateRenamer-windows.exe.sha256"
+
+      - name: SHA256 (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          shasum -a 256 "dist/DateRenamer-macos" | awk '{print $1 "  DateRenamer-macos"}' > "dist/DateRenamer-macos.sha256"
+
+      # --------------------
+      # Package macOS as ZIP (avoids execute-bit/quarantine issues)
+      # --------------------
+      - name: Package macOS ZIP
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          rm -f "DateRenamer-macos.zip"
+          zip -9 "DateRenamer-macos.zip" "DateRenamer-macos" "DateRenamer-macos.sha256"
+          test -f "DateRenamer-macos.zip"
+
+      # ==========================================================
+      # RELEASE ASSETS
+      # - Windows: direct .exe + .sha256 (no zip)
+      # - macOS: zip containing binary + sha256
+      # Runs ONLY when a GitHub Release is created (release.created).
+      # ==========================================================
+      - name: Upload Release Assets (Windows)
+        if: runner.os == 'Windows' && github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          files: |
+            dist/DateRenamer-windows.exe
+            dist/DateRenamer-windows.exe.sha256
+          fail_on_unmatched_files: true
+
+      - name: Upload Release Assets (macOS)
+        if: runner.os == 'macOS' && github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          files: |
+            dist/DateRenamer-macos.zip
+          fail_on_unmatched_files: true
+
+      # ==========================================================
+      # CI TESTING ARTIFACTS (GitHub delivers these as ZIP by design)
+      # Runs on pushes/PRs/manual runs (NOT on release events).
+      # ==========================================================
+      - name: Upload artifact (Windows)
+        if: runner.os == 'Windows' && github.event_name != 'release'
         uses: actions/upload-artifact@v4
         with:
           name: DateRenamer-windows
-          path: dist/DateRenamer.exe
+          path: |
+            dist/DateRenamer-windows.exe
+            dist/DateRenamer-windows.exe.sha256
           if-no-files-found: error
 
-      - name: Upload artifact (macOS binary)
-        if: runner.os == 'macOS'
+      - name: Upload artifact (macOS)
+        if: runner.os == 'macOS' && github.event_name != 'release'
         uses: actions/upload-artifact@v4
         with:
           name: DateRenamer-macos
-          path: dist/DateRenamer
+          path: |
+            dist/DateRenamer-macos.zip
           if-no-files-found: error
