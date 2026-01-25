@@ -1,143 +1,180 @@
+![Date Renamer icon](assets/DateRenamer.png)
+
 # Date Renamer
 
-**Date Renamer** is a cross-platform **PyQt6 GUI** that renames photos and videos **in-place** using the **best available capture/creation timestamp**.  
-It prioritizes **ExifTool** (most reliable across formats), then falls back to sidecars (XMP / Google Takeout JSON), classic EXIF readers, MediaInfo, filename parsing, and optionally filesystem timestamps.
+Renames photos and videos based on the best available capture timestamp.
 
----
+> Deterministic timestamp resolution with explicit source visibility in the preview.
 
-## What this app solves
+[![Release](https://img.shields.io/github/v/release/Ch4r0ne/date-renamer)](https://github.com/Ch4r0ne/date-renamer/releases)
+[![License](https://img.shields.io/github/license/Ch4r0ne/date-renamer)](LICENSE)
+![Platforms](https://img.shields.io/badge/platform-windows%20%7C%20macOS-blue)
 
-When you combine files from phones, cameras, WhatsApp exports, DJI drones, Google Photos Takeout, and edited media, timestamps end up inconsistent. This tool standardizes filenames deterministically:
+![Date Renamer preview](preview/date-renamer.png)
 
-- **Stable naming format** (strftime-based)
-- **Predictable timestamp resolution order**
-- **Collision-safe** renaming (auto-appends `_1`, `_2`, …)
-- **Preview-first workflow** + **Undo for the last run (same session)**
+Preview of the current UI and timestamp source visibility.
 
----
+## Quick start
+
+### Download (recommended)
+
+1. Download the latest release from the GitHub Releases page.
+2. Start the app (Windows: `.exe`, macOS: `.app`).
+3. No Python installation is required for the release builds.
+
+### Run from source
+
+```bash
+python -m venv .venv
+```
+
+```bash
+# Windows
+.venv\Scripts\activate
+```
+
+```bash
+# macOS/Linux
+source .venv/bin/activate
+```
+
+```bash
+pip install -r requirements.txt
+```
+
+```bash
+python date-renamer.py
+```
 
 ## Features
 
-- **Auto-preview**: changing options triggers rescans (debounced).
-- **Rename patterns**
-  - `Date only` → `2026-01-25_14-03-09.jpg`
-  - `Date + Original` → `2026-01-25_14-03-09_IMG_1234.jpg`
-  - `Original only` → `IMG_1234.jpg` (prefix/suffix optional)
-  - `Original + Date` → `IMG_1234_2026-01-25_14-03-09.jpg`
-- **Deep analysis (optional toggles)**
-  - Parse date from filename (WhatsApp / IMG / DJI patterns)
-  - Read `.xmp` sidecar (Adobe/Lightroom/exports)
-  - Read Google Takeout `.json` sidecar (timestamp-based)
-- **Fallback modes** (optional)
-  - File created time
-  - File modified time
-  - OFF (skip files without a timestamp)
-- **Recursive scanning** (include subfolders)
-- **Logs viewer** for troubleshooting
-- **Dark UI theme** + platform-neutral checkbox rendering
+- Live preview with planned target names.
+- Undo for the last rename operation.
+- Timestamp extraction via ExifTool (preferred).
+- Deep mode: filename patterns and sidecars (XMP/Takeout JSON).
+- Safe conflict handling with auto-unique suffixes.
+- Parallel scan for large folders.
+- Transparent diagnostics with tooltip source labels.
 
----
+## How it works (timestamp resolution)
 
-## How timestamps are chosen (deterministic order)
+Date Renamer selects the best available timestamp per file.
+The chosen timestamp source is visible in the preview tooltip.
 
-For each file, the tool resolves a timestamp in this order:
+Order of precedence (mirrors the code path):
 
-1. **ExifTool** (preferred, if available)
-   - It checks these tags (in order):
-     - `EXIF:DateTimeOriginal`, `EXIF:CreateDate`, `XMP:CreateDate`, `XMP:DateCreated`,
-       QuickTime creation tags, file dates, composite tags, PNG creation time, …
-2. **Google Takeout JSON sidecar** (`<file>.<ext>.json`)
-3. **XMP sidecar** (`<file>.xmp` or `<file>.<ext>.xmp`)
-4. **Classic EXIF parsing** via `exifread` (images)
-5. **HEIC embedded XMP** via Pillow + pillow-heif (if present)
-6. **MediaInfo** (`pymediainfo`) for videos
-7. **Filename parsing** (if enabled)
-8. **Filesystem fallback** (created/modified) if enabled  
-9. Otherwise → **SKIP (missing timestamp)**
+1. ExifTool tags (QuickTime/EXIF/XMP/Composite/PNG).
+2. Takeout JSON sidecar.
+3. XMP sidecar.
+4. Classic EXIF parsing via `exifread` (images).
+5. HEIC embedded XMP (Pillow + pillow-heif).
+6. MediaInfo for videos.
+7. Filename parsing (Deep mode).
+8. Filesystem fallback (Created/Modified), when selected.
+9. Otherwise: skip the file.
 
-In the Preview table you can hover rows to see the **source** and timestamp used.
+<details>
+<summary>ExifTool tags checked</summary>
 
----
+- EXIF:DateTimeOriginal
+- EXIF:CreateDate
+- XMP:CreateDate
+- XMP:DateCreated
+- QuickTime:CreateDate
+- QuickTime:MediaCreateDate
+- QuickTime:TrackCreateDate
+- QuickTime:ModifyDate
+- QuickTime:ContentCreateDate
+- Composite:SubSecDateTimeOriginal
+- Composite:DateTimeCreated
+- PNG:CreationTime
+- DateTimeOriginal (fallback)
+- CreateDate (fallback)
+- MediaCreateDate (fallback)
+</details>
 
-## Filename patterns recognized (deep filename mode)
+## Deep mode
 
-- `IMG_YYYYMMDD_HHMMSS` / `VID_YYYYMMDD_HHMMSS`  
-- `YYYY-MM-DD_HH-MM-SS`
-- WhatsApp style: `IMG-YYYYMMDD-WA####`
-- DJI style: `DJI_YYYYMMDD_HHMMSS`
+Deep mode extends timestamp resolution beyond embedded metadata:
 
----
+- Filename parsing for known capture patterns.
+- XMP sidecar reads (`.xmp` next to the media file).
+- Takeout JSON sidecar reads (`.json` next to the media file).
 
-## Requirements
+Recognized filename patterns (examples):
 
-- Python **3.10+** (recommended)
-- PyQt6
-- Optional (recommended for best results):
-  - **ExifTool** available as `exiftool` in PATH **or** via `exiftool_wrapper`
-  - `exifread` (classic EXIF)
-  - `pymediainfo` (videos)
-  - `Pillow` + `pillow-heif` (HEIC support)
+```
+DJI_FLY_YYYYMMDD_HHMMSS_*
+DJI_YYYYMMDD_HHMMSS_*
+IMG_YYYYMMDD_HHMMSS* / VID_YYYYMMDD_HHMMSS*
+YYYYMMDD_HHMMSS*
+YYYY-MM-DD_HH-MM-SS*
+IMG-YYYYMMDD-WA####* / VID-YYYYMMDD-WA####*
+```
 
----
+Date-only patterns produce midnight time if no time is present.
 
-## Installation (from source)
+## Known limitations
 
-### 1) Create venv + install
+### Messenger and transcoded exports
+
+Some exports remove capture metadata entirely. In these cases ExifTool can return
+`0000:00:00` or no usable tag. The capture date is not recoverable without a
+sidecar or filename pattern. Use skip or filesystem fallback if needed.
+
+### UUID filenames
+
+UUID-style filenames often indicate exported or transcoded media. Without a
+sidecar or intact metadata, only filesystem fallback is available, which usually
+reflects import or download time rather than capture time.
+
+## Troubleshooting
+
+1. Open Logs from the app menu.
+2. Copy the log output.
+3. Attach it to a GitHub issue.
+
+Common cases:
+
+- ExifTool not found or wrong mode selection.
+- No timestamp available (use fallback or Deep mode).
+- Permission or rename failure (Windows file locks).
+
+The preview tooltip always shows the selected timestamp source.
+
+## Build (PyInstaller)
+
+Prerequisites:
+
+- Python 3.10+
+- PyInstaller (`pip install pyinstaller`)
+
+Build commands:
+
 ```bash
-python -m venv .venv
-# Windows:
-.venv\Scripts\activate
-# macOS/Linux:
-source .venv/bin/activate
-
-pip install -U pip
-pip install PyQt6
-pip install exifread pillow pillow-heif pymediainfo exiftool-wrapper
-```
----
-
-## Development
-
-Want to contribute?  
-- Code style: [PEP8](https://www.python.org/dev/peps/pep-0008/), modular, clear docstrings.
-- See [`CONTRIBUTING.md`](CONTRIBUTING.md) for setup, code guidelines, and feature requests.
-
-**Key dependencies:**  
-```powershell
-# Windows (onefile) – Date Renamer + Assets inkl. exiftool.exe (mit Subordnern)
-py -m PyInstaller --noconfirm --clean --windowed --onefile `
-  --name "DateRenamer" `
-  --icon ".\assets\DateRenamer.ico" `
-  --add-data ".\assets;assets" `
-  --add-data ".\assets\exiftool;assets\exiftool" `
-  --collect-all "PyQt6" `
-  --hidden-import "PyQt6.QtCore" `
-  --hidden-import "PyQt6.QtGui" `
-  --hidden-import "PyQt6.QtWidgets" `
-  --hidden-import "PyQt6.sip" `
-  --hidden-import "PIL._imaging" `
-  --hidden-import "pillow_heif" `
-  --hidden-import "pymediainfo" `
-  --hidden-import "exifread" `
-  --hidden-import "exiftool_wrapper" `
-  ".\date-renamer.py"
+# Windows
+py -m PyInstaller date-renamer.spec
 ```
 
----
+```bash
+# macOS
+python3 -m PyInstaller date-renamer.spec
+```
+
+Output is written to `dist/DateRenamer`.
+
+Bundled assets are taken from `assets/` and `tools/` (if present).
+ExifTool resolution order is bundled first, then system PATH.
 
 ## License
 
 [MIT License](LICENSE)
 
----
-
 ## Credits
 
-- Inspired by real-world batch photo organizing challenges.
-- Powered by open-source Python packages.
-- UI built with [CustomTkinter](https://github.com/TomSchimansky/CustomTkinter).
+- Built with PyQt6 and community-maintained Python packages.
 
----
+## Support
 
-**Questions, feedback, or feature requests?**  
-Open an [issue](https://github.com/Ch4r0ne/EXIFrenameX/issues) or start a discussion!
+Open an issue at https://github.com/Ch4r0ne/date-renamer/issues with logs and a sample
+file list if you need help reproducing a timestamp issue.
