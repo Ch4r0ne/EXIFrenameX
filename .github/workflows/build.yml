@@ -48,7 +48,7 @@ jobs:
           test -f date-renamer-toolkit.py
           test -d assets
 
-      - name: Install deps (deterministic build toolchain)
+      - name: Install deps (pinned build toolchain)
         shell: bash
         run: |
           set -euo pipefail
@@ -56,35 +56,56 @@ jobs:
           python -m pip install "pyinstaller==6.18.0" "pyinstaller-hooks-contrib==2026.0"
 
       # ---------------- EXIFTOOL WINDOWS ----------------
-      - name: Fetch ExifTool (Windows 64-bit)
+      - name: Fetch ExifTool (Windows 64-bit) - robust
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $ver  = "${{ env.EXIFTOOL_VER }}"
           $dest = "assets\exiftool\windows"
+
+          # Clean destination to avoid leftovers between retries
+          if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
 
           $zip = Join-Path $env:TEMP "exiftool-win64.zip"
           $url = "https://sourceforge.net/projects/exiftool/files/exiftool-$ver`_64.zip/download"
-          Invoke-WebRequest -Uri $url -OutFile $zip
 
-          Expand-Archive -Path $zip -DestinationPath $dest -Force
+          # Use curl for SourceForge stability (redirects/HTML edge cases)
+          & curl.exe -L --fail --retry 5 --retry-delay 2 -o $zip $url
 
-          # Flatten: exiftool-<ver>_64/* -> assets/exiftool/windows/
-          $sub = Get-ChildItem $dest -Directory | Select-Object -First 1
-          if ($sub) {
-            Copy-Item -Path (Join-Path $sub.FullName "*") -Destination $dest -Recurse -Force
-            Remove-Item $sub.FullName -Recurse -Force
+          # Verify ZIP signature ("PK")
+          $bytes = [System.IO.File]::ReadAllBytes($zip)
+          if ($bytes.Length -lt 4 -or $bytes[0] -ne 0x50 -or $bytes[1] -ne 0x4B) {
+            throw "Downloaded file is not a ZIP (missing PK header). Likely HTML/redirect content."
           }
 
-          # exiftool(-k).exe -> exiftool.exe
-          $kexe = Get-ChildItem $dest -Filter "exiftool(-k).exe" -File -Recurse | Select-Object -First 1
+          try {
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            [System.IO.Compression.ZipFile]::ExtractToDirectory($zip, $dest, $true)
+          }
+          catch {
+            Write-Host "ZIP extraction failed:"
+            Write-Host $_.Exception.ToString()
+            throw
+          }
+
+          # If archive extracted into a single top folder, flatten it.
+          $top = Get-ChildItem $dest -Directory | Where-Object { $_.Name -like "exiftool-*_64" } | Select-Object -First 1
+          if ($top) {
+            Copy-Item -Path (Join-Path $top.FullName "*") -Destination $dest -Recurse -Force
+            Remove-Item $top.FullName -Recurse -Force
+          }
+
+          # Normalize exe name
+          $kexe = Get-ChildItem $dest -File -Recurse | Where-Object { $_.Name -ieq "exiftool(-k).exe" } | Select-Object -First 1
           if (-not $kexe) { throw "exiftool(-k).exe not found after extract" }
           Copy-Item $kexe.FullName (Join-Path $dest "exiftool.exe") -Force
 
-          # Hard guardrail: exiftool_files must be present
+          # Hard guardrail
           if (-not (Test-Path (Join-Path $dest "exiftool_files"))) {
+            Write-Host "Directory listing:"
+            Get-ChildItem -Recurse $dest | Select-Object FullName
             throw "exiftool_files folder missing (must ship together with exiftool.exe)"
           }
 
@@ -96,20 +117,19 @@ jobs:
           set -euo pipefail
           ver="${EXIFTOOL_VER}"
           dest="assets/exiftool/macos"
+          rm -rf "$dest"
           mkdir -p "$dest"
 
           tgz="/tmp/Image-ExifTool.tar.gz"
           url="https://sourceforge.net/projects/exiftool/files/Image-ExifTool-${ver}.tar.gz/download"
-          curl -L "$url" -o "$tgz"
+          curl -L --fail --retry 5 --retry-delay 2 "$url" -o "$tgz"
 
           tar -xzf "$tgz" -C "$dest"
-
           subdir="$(find "$dest" -maxdepth 1 -type d -name "Image-ExifTool-*" | head -n 1)"
           test -n "$subdir"
 
           cp -R "$subdir/"* "$dest/"
           rm -rf "$subdir"
-
           chmod +x "$dest/exiftool" || true
 
       - name: Verify ExifTool payload
@@ -117,9 +137,9 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${RUNNER_OS}" = "Windows" ]; then
-            ls -la assets/exiftool/windows || true
-          elif [ "${RUNNER_OS}" = "macOS" ]; then
-            ls -la assets/exiftool/macos || true
+            ls -la assets/exiftool/windows
+          else
+            ls -la assets/exiftool/macos
           fi
 
       # ---------------- BUILD ----------------
@@ -128,3 +148,10 @@ jobs:
         run: |
           set -euo pipefail
           pyinstaller --noconfirm date-renamer-toolkit.spec
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DateRenamerToolkit-${{ runner.os }}
+          path: dist/**
+          if-no-files-found: error
