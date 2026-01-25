@@ -224,46 +224,63 @@ def parse_datetime_any(s: str) -> Optional[_dt.datetime]:
     return None
 
 
+# End-condition for timestamps: end or common separators (NOT \b because '_' is a word char)
+TS_END = r"(?=$|[_\-\.\s\(\[])"
+
 FILENAME_PATTERNS: List[Tuple[str, re.Pattern[str]]] = [
-    # DJI Fly exports: dji_fly_20251108_164116_...
-    ("DJI_FLY_YYYYMMDD_HHMMSS", re.compile(r"\bDJI[_-]?FLY[_-]((?:19|20)\d{6})[_-](\d{6})\b", re.IGNORECASE)),
+    # DJI Fly: dji_fly_20251108_164116_...
+    ("DJI_FLY_YYYYMMDD_HHMMSS", re.compile(r"DJI[_-]?FLY[_-]((?:19|20)\d{6})[_-](\d{6})" + TS_END, re.IGNORECASE)),
 
-    # DJI common: DJI_20251108_164116_...
-    ("DJI_YYYYMMDD_HHMMSS", re.compile(r"\bDJI[_-]((?:19|20)\d{6})[_-](\d{6})\b", re.IGNORECASE)),
+    # DJI: DJI_20251108_164116_...
+    ("DJI_YYYYMMDD_HHMMSS", re.compile(r"DJI[_-]((?:19|20)\d{6})[_-](\d{6})" + TS_END, re.IGNORECASE)),
 
-    # Generic camera export: 20251111_184839.mp4 (seen in your list)
-    ("YYYYMMDD_HHMMSS", re.compile(r"\b((?:19|20)\d{6})[_-](\d{6})\b")),
+    # IMG_20250101_120000 / VID_20250101_120000
+    ("IMG_VID_YYYYMMDD_HHMMSS", re.compile(r"(?:IMG|VID)[-_]?((?:19|20)\d{6})[_-](\d{6})" + TS_END, re.IGNORECASE)),
 
-    # Android/Apple style: IMG_20250101_120000 / VID_...
-    ("IMG_VID_YYYYMMDD_HHMMSS", re.compile(r"\b(?:IMG|VID)[-_]?((?:19|20)\d{6})[_-](\d{6})\b", re.IGNORECASE)),
+    # Generic: 20251111_184839
+    ("YYYYMMDD_HHMMSS", re.compile(r"((?:19|20)\d{6})[_-](\d{6})" + TS_END)),
 
-    ("YYYY-MM-DD_HH-MM-SS", re.compile(r"\b(\d{4})[-_](\d{2})[-_](\d{2})[ _-](\d{2})[-_](\d{2})[-_](\d{2})\b")),
-    ("WHATSAPP_IMG_YYYYMMDD", re.compile(r"\bIMG-(\d{8})-WA\d+\b", re.IGNORECASE)),
+    # Generic: 2025-11-08_16-41-16 (or similar)
+    ("YYYY-MM-DD_HH-MM-SS", re.compile(r"(\d{4})[-_](\d{2})[-_](\d{2})[ _-](\d{2})[-_](\d{2})[-_](\d{2})" + TS_END)),
+
+    # WhatsApp Android classic: IMG-20240125-WA0001 / VID-20240125-WA0001
+    ("WHATSAPP_IMG_YYYYMMDD", re.compile(r"IMG-(\d{8})-WA\d+" + TS_END, re.IGNORECASE)),
+    ("WHATSAPP_VID_YYYYMMDD", re.compile(r"VID-(\d{8})-WA\d+" + TS_END, re.IGNORECASE)),
 ]
 
+UUID_STEM_RX = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 
-def parse_date_from_filename(name: str) -> Optional[_dt.datetime]:
+
+def parse_date_from_filename(name: str) -> Tuple[Optional[_dt.datetime], str]:
     base = Path(name).stem
     for key, rx in FILENAME_PATTERNS:
         m = rx.search(base)
         if not m:
             continue
         try:
-            if key in {"IMG_VID_YYYYMMDD_HHMMSS", "DJI_YYYYMMDD_HHMMSS", "DJI_FLY_YYYYMMDD_HHMMSS", "YYYYMMDD_HHMMSS"}:
+            if key in {
+                "IMG_VID_YYYYMMDD_HHMMSS",
+                "DJI_YYYYMMDD_HHMMSS",
+                "DJI_FLY_YYYYMMDD_HHMMSS",
+                "YYYYMMDD_HHMMSS",
+            }:
                 ymd, hms = m.group(1), m.group(2)
-                return _dt.datetime.strptime(ymd + hms, "%Y%m%d%H%M%S")
+                return _dt.datetime.strptime(ymd + hms, "%Y%m%d%H%M%S"), f"filename:{key}"
 
             if key == "YYYY-MM-DD_HH-MM-SS":
                 y, mo, d, hh, mm, ss = m.groups()
-                return _dt.datetime(int(y), int(mo), int(d), int(hh), int(mm), int(ss))
+                return _dt.datetime(int(y), int(mo), int(d), int(hh), int(mm), int(ss)), f"filename:{key}"
 
-            if key == "WHATSAPP_IMG_YYYYMMDD":
+            if key in {"WHATSAPP_IMG_YYYYMMDD", "WHATSAPP_VID_YYYYMMDD"}:
                 ymd = m.group(1)
-                return _dt.datetime.strptime(ymd, "%Y%m%d")
+                return _dt.datetime.strptime(ymd, "%Y%m%d"), f"filename:{key}"
 
         except Exception:
             continue
-    return None
+    return None, "missing"
 
 
 def sidecar_xmp_path(p: Path) -> Path:
@@ -567,9 +584,9 @@ class MetadataReader:
             return None
         return None
 
-    def _deep_filename_dt(self, p: Path) -> Optional[_dt.datetime]:
+    def _deep_filename_dt(self, p: Path) -> Tuple[Optional[_dt.datetime], str]:
         if not self.options.deep.parse_filename:
-            return None
+            return None, "missing"
         return parse_date_from_filename(p.name)
 
     def _deep_xmp_sidecar_dt(self, p: Path) -> Optional[_dt.datetime]:
@@ -649,9 +666,9 @@ class MetadataReader:
                 return dt, "mediainfo"
 
         # 7) Filename parse
-        dt = self._deep_filename_dt(p)
+        dt, src = self._deep_filename_dt(p)
         if dt:
-            return dt, "filename"
+            return dt, src
 
         # 8) Fallback
         dt = self._fallback(p)
@@ -912,6 +929,12 @@ class ScanWorker(QObject):
 
                     new = format_new_name(dt, p.name, self.fmt, self.prefix, self.suffix, self.pattern)
                     if new is None:
+                        # Better diagnostics for WhatsApp/UUID-like videos/images
+                        if UUID_STEM_RX.match(p.stem):
+                            hint = "Skipped (no timestamp – likely metadata stripped; enable fallback to use file times)"
+                            row = PreviewRow(p.name, "(no timestamp)", dt, src, p, hint)
+                            return idx, row, False
+
                         row = PreviewRow(p.name, "(no timestamp)", dt, src, p, "Skipped (no timestamp)")
                         return idx, row, False
 
@@ -1884,7 +1907,9 @@ class MainWindow(QMainWindow):
             "1) Choose a folder\n"
             "2) Preview updates automatically\n"
             "3) Click Rename\n"
-            "Undo is available for the last run (this session).",
+            "Undo is available for the last run (this session).\n"
+            "Note: Some messengers (e.g. WhatsApp) strip video metadata.\n"
+            "In that case, use 'When missing timestamp' fallback (file created/modified time) or keep files unchanged.",
         )
 
     def _show_logs(self) -> None:
