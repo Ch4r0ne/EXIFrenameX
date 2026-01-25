@@ -50,7 +50,6 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QStyle,
-    QStyleFactory,
     QProxyStyle,
     QStyleOption,
     QTableView,
@@ -93,7 +92,7 @@ APP_NAME = "Date Renamer Toolkit"
 APP_ORG = "TimTools"
 APP_SETTINGS = "DateRenamerToolkit"
 APP_SETTINGS_OLD = "EXIFrenameX_Final"
-USE_NATIVE_SCROLLBARS = True
+USE_NATIVE_SCROLLBARS = False
 
 
 # =========================
@@ -1114,128 +1113,117 @@ class CheckStyle(QProxyStyle):
 
 def apply_enterprise_dark_theme(app: QApplication) -> None:
     pal = QPalette()
-    pal.setColor(QPalette.ColorRole.Window, QColor("#141416"))
-    pal.setColor(QPalette.ColorRole.WindowText, QColor("#e8eaf0"))
-    pal.setColor(QPalette.ColorRole.Base, QColor("#121316"))
-    pal.setColor(QPalette.ColorRole.AlternateBase, QColor("#1b1c1f"))
-    pal.setColor(QPalette.ColorRole.Text, QColor("#e8eaf0"))
-    pal.setColor(QPalette.ColorRole.Button, QColor("#1b1c1f"))
-    pal.setColor(QPalette.ColorRole.ButtonText, QColor("#e8eaf0"))
-    pal.setColor(QPalette.ColorRole.Highlight, QColor("#b88cff"))
-    pal.setColor(QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
+    pal.setColor(QPalette.ColorRole.Window, QColor("#1f1f1f"))
+    pal.setColor(QPalette.ColorRole.WindowText, QColor("#F2F2F2"))
+    pal.setColor(QPalette.ColorRole.Base, QColor("#151515"))
+    pal.setColor(QPalette.ColorRole.AlternateBase, QColor("#1b1b1b"))
+    pal.setColor(QPalette.ColorRole.Text, QColor("#F2F2F2"))
+    pal.setColor(QPalette.ColorRole.PlaceholderText, QColor("#8a8a8a"))
+    pal.setColor(QPalette.ColorRole.Button, QColor("#2a2a2a"))
+    pal.setColor(QPalette.ColorRole.ButtonText, QColor("#F2F2F2"))
+    pal.setColor(QPalette.ColorRole.Highlight, QColor("#cfa9ff"))
+    pal.setColor(QPalette.ColorRole.HighlightedText, QColor("#111111"))
     app.setPalette(pal)
 
     # IMPORTANT: we do NOT style checkbox indicator here (custom style draws it)
     stylesheet = """
-        * { font-size: 10pt; }
-        QMainWindow { background: #141416; }
+        * { font-size: 10.5pt; }
+        QWidget { color: #F2F2F2; background: transparent; }
+        QMainWindow { background: #1f1f1f; }
 
+        /* Cards */
         QFrame#Card {
-            background: #1b1c1f;
-            border: 1px solid #2a2c31;
+            background: #232323;
+            border: 1px solid #2f2f2f;
             border-radius: 18px;
         }
-        QLabel#H1 { font-size: 16pt; font-weight: 800; }
-        QLabel#SectionTitle { font-size: 10.5pt; font-weight: 800; color: #e8eaf0; }
-        QLabel#Hint { color: #a9afba; font-weight: 700; }
 
+        QLabel#H1 { font-size: 17pt; font-weight: 800; }
+        QLabel#SectionTitle { font-size: 11pt; font-weight: 800; color: #F6F6F6; }
+        QLabel#Hint { color: #CFCFCF; font-weight: 650; }
+
+        /* Inputs */
         QLineEdit, QComboBox, QTextEdit {
-            background: #121316;
-            border: 1px solid #2a2c31;
+            background: #1b1b1b;
+            border: 1px solid #2f2f2f;
             border-radius: 12px;
-            padding: 10px 12px;
-            min-height: 40px;
+            padding: 8px 12px;
+            min-height: 36px;
+            color: #F2F2F2;
         }
         QLineEdit:focus, QComboBox:focus, QTextEdit:focus {
-            border: 1px solid #b88cff;
+            border: 1px solid #cfa9ff;
         }
         QLineEdit:disabled, QComboBox:disabled, QTextEdit:disabled {
-            color: #9aa0ac;
-            background: #17181b;
-            border: 1px solid #24262b;
+            color: #9a9a9a;
+            background: #1a1a1a;
+            border: 1px solid #262626;
         }
-        QComboBox::drop-down { border: 0px; width: 30px; }
+        QComboBox::drop-down { border: 0px; width: 28px; }
         QComboBox QAbstractItemView {
-            background: #121316;
-            border: 1px solid #2a2c31;
-            selection-background-color: #1f2024;
+            background: #1b1b1b;
+            border: 1px solid #2f2f2f;
+            selection-background-color: #2b2b2b;
         }
 
         QCheckBox { spacing: 10px; }
 
-        QPushButton {
+        /* Buttons: variants (NO ICON LOOK) */
+        QPushButton, QToolButton {
             border-radius: 12px;
             padding: 9px 14px;
-            border: 1px solid #2a2c31;
-            background: #1b1c1f;
-            min-height: 40px;
+            border: 1px solid #2f2f2f;
+            background: #262626;
+            color: #F2F2F2;
         }
-        QPushButton:hover { background: #212227; border: 1px solid #343840; }
-        QPushButton:pressed { background: #181a1d; }
-        QPushButton:disabled { color: #8f95a1; background: #181a1d; border: 1px solid #24262b; }
-        QPushButton:focus { border: 1px solid #b88cff; }
+        QPushButton:hover, QToolButton:hover { background: #2c2c2c; border: 1px solid #3a3a3a; }
+        QPushButton:pressed, QToolButton:pressed { background: #222222; }
+        QPushButton:disabled, QToolButton:disabled { color: #8c8c8c; background: #222222; border: 1px solid #262626; }
 
-        QPushButton[primary="true"] {
-            background: #b88cff;
+        QPushButton[variant="primary"], QToolButton[variant="primary"] {
+            background: #F6F6F6;
             color: #111111;
-            border: 1px solid #b88cff;
+            border: 1px solid #F6F6F6;
             font-weight: 800;
         }
-        QPushButton[primary="true"]:hover { background: #c39cff; }
-        QPushButton[primary="true"]:pressed { background: #a97bff; }
+        QPushButton[variant="primary"]:hover, QToolButton[variant="primary"]:hover { background: #FFFFFF; }
 
-        QPushButton[danger="true"] {
+        QPushButton[variant="secondary"], QToolButton[variant="secondary"] {
+            background: #262626;
+            color: #F2F2F2;
+            border: 1px solid #3a3a3a;
+            font-weight: 750;
+        }
+
+        QPushButton[variant="danger"], QToolButton[variant="danger"] {
             background: #3a2020;
             border: 1px solid #5a2a2a;
             color: #ffd6d6;
             font-weight: 800;
         }
-        QPushButton[danger="true"]:hover { background: #442626; }
+        QPushButton[variant="danger"]:hover, QToolButton[variant="danger"]:hover { background: #442626; }
 
-        QPushButton#Primary {
-            background: #b88cff;
-            color: #111111;
-            border: 1px solid #b88cff;
-            font-weight: 800;
-        }
-        QPushButton#Primary:hover { background: #c39cff; }
-
-        QPushButton#Danger {
-            background: #3a2020;
-            border: 1px solid #5a2a2a;
-            color: #ffd6d6;
-            font-weight: 800;
-        }
-
-        QToolButton {
-            border-radius: 12px;
-            padding: 9px 12px;
-            border: 1px solid #2a2c31;
-            background: #1b1c1f;
-            min-height: 40px;
-        }
-
+        /* Table */
         QTableView {
-            background: #121316;
-            border: 1px solid #2a2c31;
+            background: #1b1b1b;
+            border: 1px solid #2f2f2f;
             border-radius: 14px;
-            gridline-color: #1a1c20;
-            selection-background-color: #1f2024;
+            gridline-color: #222222;
+            selection-background-color: #2a2a2a;
             selection-color: #ffffff;
         }
         QHeaderView::section {
-            background: #121316;
+            background: #1b1b1b;
             border: 0px;
-            border-bottom: 1px solid #2a2c31;
-            padding: 11px 12px;
+            border-bottom: 1px solid #2f2f2f;
+            padding: 10px 10px;
             font-weight: 900;
-            color: #c3c8d4;
+            color: #F2F2F2;
             text-align: left;
         }
         QTableView::item { padding: 8px 10px; }
-    """
-    if not USE_NATIVE_SCROLLBARS:
-        stylesheet += """
+
+        /* Professional scrollbars (no overlay-flicker) */
         QScrollBar:vertical {
             background: transparent;
             width: 12px;
@@ -1244,11 +1232,26 @@ def apply_enterprise_dark_theme(app: QApplication) -> None:
         QScrollBar::handle:vertical {
             background: #3a3a3a;
             border-radius: 6px;
-            min-height: 40px;
+            min-height: 46px;
         }
         QScrollBar::handle:vertical:hover { background: #4a4a4a; }
         QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }
-        """
+        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
+
+        QScrollBar:horizontal {
+            background: transparent;
+            height: 12px;
+            margin: 0px 8px 6px 8px;
+        }
+        QScrollBar::handle:horizontal {
+            background: #3a3a3a;
+            border-radius: 6px;
+            min-width: 46px;
+        }
+        QScrollBar::handle:horizontal:hover { background: #4a4a4a; }
+        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0px; }
+        QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: transparent; }
+    """
     app.setStyleSheet(stylesheet)
 
 
@@ -1358,8 +1361,6 @@ class MainWindow(QMainWindow):
 
         btn_help = QPushButton("Help")
         btn_logs = QPushButton("Logs")
-        btn_help.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogHelpButton))
-        btn_logs.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView))
         btn_help.clicked.connect(self._show_help)
         btn_logs.clicked.connect(self._show_logs)
 
@@ -1395,9 +1396,6 @@ class MainWindow(QMainWindow):
 
         self.btn_browse = QPushButton("Browse")
         self.btn_open = QPushButton("Open")
-        self.btn_browse.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon))
-        self.btn_open.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon))
-        self.btn_browse.setObjectName("Primary")
         self.btn_browse.clicked.connect(self._browse_folder)
         self.btn_open.clicked.connect(self._open_folder)
 
@@ -1491,6 +1489,7 @@ class MainWindow(QMainWindow):
         self.btn_adv.setCheckable(True)
         self.btn_adv.setChecked(False)
         self.btn_adv.toggled.connect(self._toggle_advanced)
+        self.btn_adv.setMinimumHeight(42)
 
         self.adv_box = QFrame()
         self.adv_box.setObjectName("Card")
@@ -1560,8 +1559,8 @@ class MainWindow(QMainWindow):
         self.btn_undo = QPushButton("Undo")
         self.btn_action = QPushButton("Rename")
 
-        self.btn_action.setProperty("primary", True)
-        self.btn_action.setProperty("danger", False)
+        self.btn_action.setProperty("variant", "primary")
+        self.btn_undo.setProperty("variant", "secondary")
 
         for b in (self.btn_action, self.btn_undo):
             b.setMinimumHeight(46)
@@ -1583,7 +1582,7 @@ class MainWindow(QMainWindow):
         splitter.addWidget(right_w)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
-        splitter.setSizes([520, 900])
+        splitter.setSizes([440, 980])
 
         self.card_preview = self._card("Preview")
         right.addWidget(self.card_preview, 1)
@@ -1604,6 +1603,10 @@ class MainWindow(QMainWindow):
         self.table.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableView.SelectionMode.SingleSelection)
         self.table.verticalHeader().setVisible(False)
+        self.table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.table.setHorizontalScrollMode(QTableView.ScrollMode.ScrollPerPixel)
+        self.table.setVerticalScrollMode(QTableView.ScrollMode.ScrollPerPixel)
 
         hdr = self.table.horizontalHeader()
         hdr.setStretchLastSection(False)
@@ -1615,6 +1618,19 @@ class MainWindow(QMainWindow):
         self.table.verticalHeader().setDefaultSectionSize(30)
 
         cp.addWidget(self.table, 1)
+
+        # --- Button variants (marketing clean) ---
+        btn_help.setProperty("variant", "secondary")
+        btn_logs.setProperty("variant", "secondary")
+        self.btn_browse.setProperty("variant", "primary")
+        self.btn_open.setProperty("variant", "secondary")
+        self.btn_action.setProperty("variant", "primary")
+        self.btn_undo.setProperty("variant", "secondary")
+        self.btn_adv.setProperty("variant", "secondary")
+
+        # --- Remove icons explicitly (even if some style injects them) ---
+        for b in (btn_help, btn_logs, self.btn_browse, self.btn_open, self.btn_action, self.btn_undo):
+            b.setIcon(QIcon())
 
     def _fit_columns_initial(self) -> None:
         # Split clean 50/50 on start and after resizes
@@ -2084,8 +2100,7 @@ class MainWindow(QMainWindow):
 
         self.btn_action.setEnabled(busy or (folder_ok and not scanning and not renaming and len(self.model.rows) > 0))
         self.btn_action.setText("Stop" if busy else "Rename")
-        self.btn_action.setProperty("primary", not busy)
-        self.btn_action.setProperty("danger", busy)
+        self.btn_action.setProperty("variant", "danger" if busy else "primary")
         self.btn_action.style().unpolish(self.btn_action)
         self.btn_action.style().polish(self.btn_action)
         self.btn_action.update()
@@ -2108,9 +2123,8 @@ def main() -> int:
     app.setApplicationName(APP_NAME)
     app.setWindowIcon(QIcon(app_icon_path()))
     if sys.platform.startswith("win"):
+        app.setStyle("Fusion")
         app.setFont(QFont("Segoe UI", 10))
-        base_style = QStyleFactory.create("windowsvista") or app.style()
-        app.setStyle(base_style)
 
     # Apply checkbox style with visible checkmark ✓
     app.setStyle(CheckStyle(app.style()))
