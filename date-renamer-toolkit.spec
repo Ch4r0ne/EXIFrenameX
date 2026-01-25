@@ -3,9 +3,7 @@ from PyInstaller.building.datastruct import Tree
 
 block_cipher = None
 
-datas = [
-    Tree("assets", prefix="assets"),
-]
+datas = Tree("assets", prefix="assets")
 
 a = Analysis(
     ["date-renamer-toolkit.py"],
