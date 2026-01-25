@@ -25,58 +25,49 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
+      - uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: "pip"
           cache-dependency-path: |
             requirements.txt
 
-      - name: Sanity check (repo files)
+      - name: Sanity check
         shell: bash
         run: |
           set -euo pipefail
-          ls -la
           test -f requirements.txt
           test -f date-renamer-toolkit.spec
           test -f date-renamer-toolkit.py
           test -d assets
-          test -f assets/EXIFrenameX.ico
-          test -f assets/EXIFrenameX.icns
 
-      - name: Install deps (pinned build toolchain)
+      - name: Install deps (pinned toolchain)
         shell: bash
         run: |
           set -euo pipefail
           python -m pip install -r requirements.txt
           python -m pip install "pyinstaller==6.18.0" "pyinstaller-hooks-contrib==2026.0"
 
-      # ---------------- EXIFTOOL WINDOWS ----------------
-      - name: Fetch ExifTool (Windows 64-bit) - robust
+      # ---- ExifTool Windows
+      - name: Fetch ExifTool (Windows 64-bit)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $ver  = "${{ env.EXIFTOOL_VER }}"
           $dest = "assets\exiftool\windows"
-
           if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
 
           $zip = Join-Path $env:TEMP "exiftool-win64.zip"
           $url = "https://sourceforge.net/projects/exiftool/files/exiftool-$ver`_64.zip/download"
-
           & curl.exe -L --fail --retry 5 --retry-delay 2 -o $zip $url
 
           $bytes = [System.IO.File]::ReadAllBytes($zip)
           if ($bytes.Length -lt 4 -or $bytes[0] -ne 0x50 -or $bytes[1] -ne 0x4B) {
-            throw "Downloaded file is not a ZIP (missing PK header). Likely HTML/redirect content."
+            throw "Downloaded file is not a ZIP (missing PK header)."
           }
 
           Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -89,15 +80,14 @@ jobs:
           }
 
           $kexe = Get-ChildItem $dest -File -Recurse | Where-Object { $_.Name -ieq "exiftool(-k).exe" } | Select-Object -First 1
-          if (-not $kexe) { throw "exiftool(-k).exe not found after extract" }
+          if (-not $kexe) { throw "exiftool(-k).exe not found" }
           Copy-Item $kexe.FullName (Join-Path $dest "exiftool.exe") -Force
 
           if (-not (Test-Path (Join-Path $dest "exiftool_files"))) {
-            Get-ChildItem -Recurse $dest | Select-Object FullName
-            throw "exiftool_files folder missing (must ship together with exiftool.exe)"
+            throw "exiftool_files missing"
           }
 
-      # ---------------- EXIFTOOL MACOS ----------------
+      # ---- ExifTool macOS
       - name: Fetch ExifTool (macOS full distribution)
         if: runner.os == 'macOS'
         shell: bash
@@ -115,42 +105,38 @@ jobs:
           tar -xzf "$tgz" -C "$dest"
           subdir="$(find "$dest" -maxdepth 1 -type d -name "Image-ExifTool-*" | head -n 1)"
           test -n "$subdir"
-
           cp -R "$subdir/"* "$dest/"
           rm -rf "$subdir"
 
-          # Remove test suite (contains problematic Mach-O samples)
+          # kill test-suite (important)
           rm -rf "$dest/t"
-
           chmod +x "$dest/exiftool" || true
 
-      - name: Verify ExifTool payload
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ "${RUNNER_OS}" = "Windows" ]; then
-            ls -la assets/exiftool/windows
-          else
-            ls -la assets/exiftool/macos
-            test ! -d assets/exiftool/macos/t
-          fi
-
-      - name: Clean build output folders
+      - name: Clean build output
         shell: bash
         run: |
           set -euo pipefail
           rm -rf dist build
 
-      # ---------------- BUILD ----------------
-      - name: Build with PyInstaller
+      - name: Build (onefile)
         shell: bash
         run: |
           set -euo pipefail
           pyinstaller --noconfirm --clean date-renamer-toolkit.spec
 
-      - name: Upload artifact
+      # Upload ONLY the single output
+      - name: Upload artifact (Windows exe)
+        if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: DateRenamerToolkit-${{ runner.os }}
-          path: dist/**
+          name: DateRenamerToolkit-windows
+          path: dist/DateRenamerToolkit.exe
+          if-no-files-found: error
+
+      - name: Upload artifact (macOS binary)
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: DateRenamerToolkit-macos
+          path: dist/DateRenamerToolkit
           if-no-files-found: error
