@@ -1210,6 +1210,15 @@ def apply_enterprise_dark_theme(app: QApplication) -> None:
             font-weight: 750;
         }
 
+        QToolButton[variant="link"] {
+            background: transparent;
+            border: 0px;
+            padding: 2px 0px;
+            color: #cfa9ff;
+            font-weight: 700;
+        }
+        QToolButton[variant="link"]:hover { color: #e2ccff; }
+
         QPushButton[variant="danger"], QToolButton[variant="danger"] {
             background: #3a2020;
             border: 1px solid #5a2a2a;
@@ -1404,7 +1413,7 @@ class MainWindow(QMainWindow):
 
         title = QLabel(APP_NAME)
         title.setObjectName("H1")
-        subtitle = QLabel("Rename photos & videos by timestamp — offline")
+        subtitle = QLabel("Rename photos & videos by timestamp")
         subtitle.setObjectName("Hint")
 
         title_stack = QVBoxLayout()
@@ -1444,6 +1453,7 @@ class MainWindow(QMainWindow):
 
         cf = self.card_folder.layout()
         assert isinstance(cf, QVBoxLayout)
+        cf.setSpacing(8)
 
         row_path = QHBoxLayout()
         self.ed_folder = QLineEdit()
@@ -1471,16 +1481,34 @@ class MainWindow(QMainWindow):
         self.lbl_counts.setObjectName("Hint")
         cf.addWidget(self.lbl_counts)
 
-        self.lbl_trust = QLabel("Offline • No uploads • Safe rename + Undo")
-        self.lbl_trust.setObjectName("Hint")
-        cf.addWidget(self.lbl_trust)
-
         # Naming card
         self.card_naming = self._card("Rename pattern")
         left.addWidget(self.card_naming)
 
         cn = self.card_naming.layout()
         assert isinstance(cn, QVBoxLayout)
+
+        title_item = cn.takeAt(0)
+        if title_item and title_item.widget():
+            title_item.widget().deleteLater()
+
+        header_row = QHBoxLayout()
+        header_title = QLabel("Rename pattern")
+        header_title.setObjectName("SectionTitle")
+        header_row.addWidget(header_title)
+        header_row.addStretch(1)
+
+        self.btn_adv = QToolButton()
+        self.btn_adv.setText("Advanced")
+        self.btn_adv.setCheckable(True)
+        self.btn_adv.setChecked(False)
+        self.btn_adv.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.btn_adv.setArrowType(Qt.ArrowType.RightArrow)
+        self.btn_adv.setAutoRaise(True)
+        self.btn_adv.toggled.connect(self._toggle_advanced)
+        self.btn_adv.setProperty("variant", "link")
+        header_row.addWidget(self.btn_adv)
+        cn.addLayout(header_row)
 
         grid = QGridLayout()
         grid.setHorizontalSpacing(8)
@@ -1531,25 +1559,15 @@ class MainWindow(QMainWindow):
         grid.addWidget(self.ed_suffix, r, 1)
         r += 1
 
-        grid.addWidget(QLabel("Name pattern"), r, 0)
+        grid.addWidget(QLabel("Pattern"), r, 0)
         grid.addWidget(self.cmb_pattern, r, 1)
         r += 1
 
-        grid.addWidget(QLabel("If no timestamp"), r, 0)
+        grid.addWidget(QLabel("When missing timestamp"), r, 0)
         grid.addWidget(self.cmb_fallback, r, 1)
         r += 1
 
         cn.addLayout(grid)
-
-        # Advanced collapsible
-        self.btn_adv = QToolButton()
-        self.btn_adv.setText("Advanced")
-        self.btn_adv.setCheckable(True)
-        self.btn_adv.setChecked(False)
-        self.btn_adv.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-        self.btn_adv.setArrowType(Qt.ArrowType.RightArrow)
-        self.btn_adv.toggled.connect(self._toggle_advanced)
-        self.btn_adv.setMinimumHeight(42)
 
         self.adv_box = QFrame()
         self.adv_box.setObjectName("Card")
@@ -1601,8 +1619,6 @@ class MainWindow(QMainWindow):
         rowp.addWidget(self.cmb_parallel_workers, 1)
         adv_l.addLayout(rowp)
 
-        cn.addSpacing(6)
-        cn.addWidget(self.btn_adv, alignment=Qt.AlignmentFlag.AlignLeft)
         cn.addWidget(self.adv_box)
 
         # Run card (fix: no huge empty, title stays top)
@@ -1708,7 +1724,7 @@ class MainWindow(QMainWindow):
         self.btn_open.setProperty("variant", "secondary")
         self.btn_action.setProperty("variant", "primary")
         self.btn_undo.setProperty("variant", "secondary")
-        self.btn_adv.setProperty("variant", "secondary")
+        self.btn_adv.setProperty("variant", "link")
 
         # --- Remove icons explicitly (even if some style injects them) ---
         for b in (btn_help, btn_logs, self.btn_browse, self.btn_open, self.btn_action, self.btn_undo):
@@ -2133,6 +2149,7 @@ class MainWindow(QMainWindow):
         self._rename_thread.finished.connect(self._cleanup_rename)
 
         self._rename_thread.start()
+        self._set_preview_status("Renaming…")
         self._update_ui_state()
 
     def _on_rename_finished(self, result_obj: object) -> None:
@@ -2149,6 +2166,7 @@ class MainWindow(QMainWindow):
 
     def _on_rename_failed(self, msg: str) -> None:
         log(f"[rename] ERROR {msg}")
+        self._set_preview_status("Error")
         QMessageBox.critical(self, "Rename error", msg)
         self._update_ui_state()
 
@@ -2196,6 +2214,7 @@ class MainWindow(QMainWindow):
         self._undo_thread = QThread()
         self._undo_worker = UndoWorker(list(self._undo_pairs), self._undo_cancel)
         self._undo_worker.moveToThread(self._undo_thread)
+        self._set_preview_status("Undoing…")
 
         def done(undone: int, errors: int) -> None:
             dlg.hide()
@@ -2211,6 +2230,7 @@ class MainWindow(QMainWindow):
         def fail(msg: str) -> None:
             dlg.hide()
             log(f"[undo] ERROR {msg}")
+            self._set_preview_status("Error")
             QMessageBox.critical(self, "Undo error", msg)
             self._update_ui_state()
 
