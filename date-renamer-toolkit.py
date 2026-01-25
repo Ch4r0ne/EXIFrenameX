@@ -50,11 +50,13 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QStyle,
+    QStyleFactory,
     QProxyStyle,
     QStyleOption,
     QTableView,
     QTextEdit,
     QToolButton,
+    QSplitter,
     QVBoxLayout,
     QWidget,
 )
@@ -1114,51 +1116,51 @@ class CheckStyle(QProxyStyle):
 
 def apply_enterprise_dark_theme(app: QApplication) -> None:
     pal = QPalette()
-    pal.setColor(QPalette.ColorRole.Window, QColor("#1f1f1f"))
-    pal.setColor(QPalette.ColorRole.WindowText, QColor("#eaeaea"))
-    pal.setColor(QPalette.ColorRole.Base, QColor("#171717"))
-    pal.setColor(QPalette.ColorRole.AlternateBase, QColor("#1d1d1d"))
-    pal.setColor(QPalette.ColorRole.Text, QColor("#eaeaea"))
-    pal.setColor(QPalette.ColorRole.Button, QColor("#2a2a2a"))
-    pal.setColor(QPalette.ColorRole.ButtonText, QColor("#eaeaea"))
-    pal.setColor(QPalette.ColorRole.Highlight, QColor("#3a3a3a"))
+    pal.setColor(QPalette.ColorRole.Window, QColor("#141416"))
+    pal.setColor(QPalette.ColorRole.WindowText, QColor("#e8eaf0"))
+    pal.setColor(QPalette.ColorRole.Base, QColor("#121316"))
+    pal.setColor(QPalette.ColorRole.AlternateBase, QColor("#1b1c1f"))
+    pal.setColor(QPalette.ColorRole.Text, QColor("#e8eaf0"))
+    pal.setColor(QPalette.ColorRole.Button, QColor("#1b1c1f"))
+    pal.setColor(QPalette.ColorRole.ButtonText, QColor("#e8eaf0"))
+    pal.setColor(QPalette.ColorRole.Highlight, QColor("#b88cff"))
     pal.setColor(QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
     app.setPalette(pal)
 
     # IMPORTANT: we do NOT style checkbox indicator here (custom style draws it)
     stylesheet = """
         * { font-size: 10pt; }
-        QWidget { color: #eaeaea; background: transparent; }
-        QMainWindow { background: #1f1f1f; }
+        QMainWindow { background: #141416; }
 
         QFrame#Card {
-            background: #232323;
-            border: 1px solid #2f2f2f;
+            background: #1b1c1f;
+            border: 1px solid #2a2c31;
             border-radius: 18px;
         }
         QLabel#H1 { font-size: 16pt; font-weight: 800; }
-        QLabel#SectionTitle { font-size: 10.5pt; font-weight: 800; color: #f0f0f0; }
-        QLabel#Hint { color: #bdbdbd; font-weight: 700; }
+        QLabel#SectionTitle { font-size: 10.5pt; font-weight: 800; color: #e8eaf0; }
+        QLabel#Hint { color: #a9afba; font-weight: 700; }
 
         QLineEdit, QComboBox, QTextEdit {
-            background: #1b1b1b;
-            border: 1px solid #2f2f2f;
+            background: #121316;
+            border: 1px solid #2a2c31;
             border-radius: 12px;
             padding: 10px 12px;
+            min-height: 40px;
         }
         QLineEdit:focus, QComboBox:focus, QTextEdit:focus {
-            border: 1px solid #cfa9ff;
+            border: 1px solid #b88cff;
         }
         QLineEdit:disabled, QComboBox:disabled, QTextEdit:disabled {
-            color: #9a9a9a;
-            background: #1a1a1a;
-            border: 1px solid #262626;
+            color: #9aa0ac;
+            background: #17181b;
+            border: 1px solid #24262b;
         }
         QComboBox::drop-down { border: 0px; width: 30px; }
         QComboBox QAbstractItemView {
-            background: #1b1b1b;
-            border: 1px solid #2f2f2f;
-            selection-background-color: #2b2b2b;
+            background: #121316;
+            border: 1px solid #2a2c31;
+            selection-background-color: #1f2024;
         }
 
         QCheckBox { spacing: 10px; }
@@ -1166,21 +1168,23 @@ def apply_enterprise_dark_theme(app: QApplication) -> None:
         QPushButton {
             border-radius: 12px;
             padding: 9px 14px;
-            border: 1px solid #2f2f2f;
-            background: #262626;
+            border: 1px solid #2a2c31;
+            background: #1b1c1f;
+            min-height: 40px;
         }
-        QPushButton:hover { background: #2b2b2b; border: 1px solid #3a3a3a; }
-        QPushButton:pressed { background: #222222; }
-        QPushButton:disabled { color: #8c8c8c; background: #222222; border: 1px solid #262626; }
-        QPushButton:focus { border: 1px solid #cfa9ff; }
+        QPushButton:hover { background: #212227; border: 1px solid #343840; }
+        QPushButton:pressed { background: #181a1d; }
+        QPushButton:disabled { color: #8f95a1; background: #181a1d; border: 1px solid #24262b; }
+        QPushButton:focus { border: 1px solid #b88cff; }
 
         QPushButton[primary="true"] {
-            background: #f3f3f3;
+            background: #b88cff;
             color: #111111;
-            border: 1px solid #f3f3f3;
+            border: 1px solid #b88cff;
             font-weight: 800;
         }
-        QPushButton[primary="true"]:hover { background: #ffffff; }
+        QPushButton[primary="true"]:hover { background: #c39cff; }
+        QPushButton[primary="true"]:pressed { background: #a97bff; }
 
         QPushButton[danger="true"] {
             background: #3a2020;
@@ -1191,12 +1195,12 @@ def apply_enterprise_dark_theme(app: QApplication) -> None:
         QPushButton[danger="true"]:hover { background: #442626; }
 
         QPushButton#Primary {
-            background: #f3f3f3;
+            background: #b88cff;
             color: #111111;
-            border: 1px solid #f3f3f3;
+            border: 1px solid #b88cff;
             font-weight: 800;
         }
-        QPushButton#Primary:hover { background: #ffffff; }
+        QPushButton#Primary:hover { background: #c39cff; }
 
         QPushButton#Danger {
             background: #3a2020;
@@ -1208,25 +1212,26 @@ def apply_enterprise_dark_theme(app: QApplication) -> None:
         QToolButton {
             border-radius: 12px;
             padding: 9px 12px;
-            border: 1px solid #2f2f2f;
-            background: #262626;
+            border: 1px solid #2a2c31;
+            background: #1b1c1f;
+            min-height: 40px;
         }
 
         QTableView {
-            background: #1b1b1b;
-            border: 1px solid #2f2f2f;
+            background: #121316;
+            border: 1px solid #2a2c31;
             border-radius: 14px;
-            gridline-color: #222222;
-            selection-background-color: #2a2a2a;
+            gridline-color: #1a1c20;
+            selection-background-color: #1f2024;
             selection-color: #ffffff;
         }
         QHeaderView::section {
-            background: #1b1b1b;
+            background: #121316;
             border: 0px;
-            border-bottom: 1px solid #2f2f2f;
-            padding: 10px 10px;
+            border-bottom: 1px solid #2a2c31;
+            padding: 11px 12px;
             font-weight: 900;
-            color: #eaeaea;
+            color: #c3c8d4;
             text-align: left;
         }
         QTableView::item { padding: 8px 10px; }
@@ -1355,6 +1360,8 @@ class MainWindow(QMainWindow):
 
         btn_help = QPushButton("Help")
         btn_logs = QPushButton("Logs")
+        btn_help.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogHelpButton))
+        btn_logs.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView))
         btn_help.clicked.connect(self._show_help)
         btn_logs.clicked.connect(self._show_logs)
 
@@ -1365,14 +1372,16 @@ class MainWindow(QMainWindow):
         outer.addLayout(top)
 
         # Main split
-        split = QHBoxLayout()
-        split.setSpacing(14)
-        outer.addLayout(split, 1)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setChildrenCollapsible(False)
+        splitter.setHandleWidth(1)
+        outer.addWidget(splitter, 1)
 
         # Left panel
-        left = QVBoxLayout()
+        left_w = QWidget()
+        left = QVBoxLayout(left_w)
         left.setSpacing(14)
-        split.addLayout(left, 1)
+        splitter.addWidget(left_w)
 
         # Folder card
         self.card_folder = self._card("Folder")
@@ -1388,6 +1397,8 @@ class MainWindow(QMainWindow):
 
         self.btn_browse = QPushButton("Browse")
         self.btn_open = QPushButton("Open")
+        self.btn_browse.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon))
+        self.btn_open.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon))
         self.btn_browse.setObjectName("Primary")
         self.btn_browse.clicked.connect(self._browse_folder)
         self.btn_open.clicked.connect(self._open_folder)
@@ -1413,6 +1424,8 @@ class MainWindow(QMainWindow):
         grid = QGridLayout()
         grid.setHorizontalSpacing(10)
         grid.setVerticalSpacing(10)
+        grid.setColumnStretch(0, 0)
+        grid.setColumnStretch(1, 1)
 
         # ORDER requested:
         # Format -> Prefix -> Suffix -> Pattern -> Fallback -> Include subfolders
@@ -1450,26 +1463,26 @@ class MainWindow(QMainWindow):
 
         r = 0
         grid.addWidget(QLabel("Format"), r, 0)
-        grid.addWidget(self.cmb_format, r, 1, 1, 2)
+        grid.addWidget(self.cmb_format, r, 1)
         r += 1
 
         grid.addWidget(QLabel("Prefix"), r, 0)
-        grid.addWidget(self.ed_prefix, r, 1, 1, 2)
+        grid.addWidget(self.ed_prefix, r, 1)
         r += 1
         
         grid.addWidget(QLabel("Suffix"), r, 0)
-        grid.addWidget(self.ed_suffix, r, 1, 1, 2)
+        grid.addWidget(self.ed_suffix, r, 1)
         r += 1
 
         grid.addWidget(QLabel("Pattern"), r, 0)
-        grid.addWidget(self.cmb_pattern, r, 1, 1, 2)
+        grid.addWidget(self.cmb_pattern, r, 1)
         r += 1
 
         grid.addWidget(QLabel("Fallback if missing"), r, 0)
-        grid.addWidget(self.cmb_fallback, r, 1, 1, 2)
+        grid.addWidget(self.cmb_fallback, r, 1)
         r += 1
 
-        grid.addWidget(self.cb_recursive, r, 0, 1, 3)
+        grid.addWidget(self.cb_recursive, r, 0, 1, 2)
         r += 1
 
         cn.addLayout(grid)
@@ -1562,12 +1575,17 @@ class MainWindow(QMainWindow):
         run_row.addWidget(self.btn_action, 3)
         run_row.addWidget(self.btn_undo, 1)
         cr.addLayout(run_row)
-        cr.addStretch(1)  # keep header at top visually
+
+        left.addStretch(1)
 
         # Right panel
-        right = QVBoxLayout()
+        right_w = QWidget()
+        right = QVBoxLayout(right_w)
         right.setSpacing(14)
-        split.addLayout(right, 1)
+        splitter.addWidget(right_w)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([520, 900])
 
         self.card_preview = self._card("Preview")
         right.addWidget(self.card_preview, 1)
@@ -2093,6 +2111,8 @@ def main() -> int:
     app.setWindowIcon(QIcon(app_icon_path()))
     if sys.platform.startswith("win"):
         app.setFont(QFont("Segoe UI", 10))
+        base_style = QStyleFactory.create("windowsvista") or app.style()
+        app.setStyle(base_style)
 
     # Apply checkbox style with visible checkmark ✓
     app.setStyle(CheckStyle(app.style()))
