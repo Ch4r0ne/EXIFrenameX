@@ -45,16 +45,16 @@ datas += collect_tree("tools")
 # Icons (new branding)
 icon = None
 if IS_WIN:
-    ico = Path("assets/DateRenamerToolkit.ico")
+    ico = Path("assets/DateRenamer.ico")
     if ico.exists():
         icon = str(ico)
 elif IS_MAC:
-    icns = Path("assets/DateRenamerToolkit.icns")
+    icns = Path("assets/DateRenamer.icns")
     if icns.exists():
         icon = str(icns)
 
 a = Analysis(
-    ["date-renamer-toolkit.py"],
+    ["date-renamer.py"],
     pathex=["."],
     binaries=[],
     datas=datas,
@@ -85,7 +85,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="DateRenamerToolkit",
+    name="DateRenamer",
     console=False,
     icon=icon,
     upx=True if IS_WIN else False,
