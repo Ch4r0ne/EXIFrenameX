@@ -37,7 +37,7 @@ Date Renamer resolves timestamps using a strict precedence order and shows the d
 2. Start the app:
    - Windows: `.exe`
    - macOS: `.app`
-3. Done — release builds are standalone.
+3. Done release builds are standalone.
 
 ---
 
