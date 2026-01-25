@@ -149,14 +149,14 @@ jobs:
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
-          name: DateRenamerToolkit-windows
-          path: dist/DateRenamerToolkit.exe
+          name: DateRenamer-windows
+          path: dist/DateRenamer.exe
           if-no-files-found: error
 
       - name: Upload artifact (macOS binary)
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@v4
         with:
-          name: DateRenamerToolkit-macos
-          path: dist/DateRenamerToolkit
+          name: DateRenamer-macos
+          path: dist/DateRenamer
           if-no-files-found: error
