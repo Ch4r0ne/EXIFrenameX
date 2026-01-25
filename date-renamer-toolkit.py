@@ -807,12 +807,13 @@ class PreviewFilter(QSortFilterProxyModel):
 # Workers
 # =========================
 class ScanWorker(QObject):
-    row_ready = pyqtSignal(object, int, int, int)  # row, processed, total, meta_ok
-    finished = pyqtSignal(list, int, int, str)  # rows, total_files, meta_ok, exiftool_info
-    failed = pyqtSignal(str)
+    row_ready = pyqtSignal(object, int, int, int, int)  # row, processed, total, meta_ok, scan_id
+    finished = pyqtSignal(list, int, int, str, int)  # rows, total_files, meta_ok, exiftool_info, scan_id
+    failed = pyqtSignal(str, int)
 
     def __init__(
         self,
+        scan_id: int,
         folder: Path,
         recursive: bool,
         reader: MetadataReader,
@@ -826,6 +827,7 @@ class ScanWorker(QObject):
         parallel_workers: str,
     ):
         super().__init__()
+        self.scan_id = scan_id
         self.folder = folder
         self.recursive = recursive
         self.reader = reader
@@ -933,7 +935,7 @@ class ScanWorker(QObject):
                         processed += 1
                         if ok:
                             meta_ok += 1
-                        self.row_ready.emit(row, processed, total, meta_ok)
+                        self.row_ready.emit(row, processed, total, meta_ok, self.scan_id)
                         next_emit += 1
 
                 if not parallel:
@@ -944,7 +946,7 @@ class ScanWorker(QObject):
                         results[i] = (row, ok)
                         emit_ready_up_to()
 
-                    self.finished.emit(rows, total, meta_ok, info)
+                    self.finished.emit(rows, total, meta_ok, info, self.scan_id)
                     return
 
                 workers = resolve_workers()
@@ -960,10 +962,10 @@ class ScanWorker(QObject):
                         emit_ready_up_to()
 
                 emit_ready_up_to()
-                self.finished.emit(rows, total, meta_ok, info)
+                self.finished.emit(rows, total, meta_ok, info, self.scan_id)
 
         except Exception as e:
-            self.failed.emit(f"{type(e).__name__}: {e}")
+            self.failed.emit(f"{type(e).__name__}: {e}", self.scan_id)
 
 
 class RenameWorker(QObject):
@@ -1259,6 +1261,9 @@ class MainWindow(QMainWindow):
         self._scan_thread: Optional[QThread] = None
         self._scan_worker: Optional[ScanWorker] = None
         self._scan_cancel = threading.Event()
+        self._scan_seq = 0
+        self._active_scan_id = 0
+        self._scan_restart_requested = False
 
         self._rename_thread: Optional[QThread] = None
         self._rename_worker: Optional[RenameWorker] = None
@@ -1272,7 +1277,7 @@ class MainWindow(QMainWindow):
 
         self._debounce = QTimer(self)
         self._debounce.setSingleShot(True)
-        self._debounce.setInterval(220)
+        self._debounce.setInterval(350)
         self._debounce.timeout.connect(self._start_scan_if_possible)
 
         self._build_ui()
@@ -1654,10 +1659,17 @@ class MainWindow(QMainWindow):
         LogsDialog(self).exec()
 
     def _stop_all(self) -> None:
+        self._scan_restart_requested = False
         if self._scan_thread is not None:
             self._scan_cancel.set()
         if self._rename_thread is not None:
             self._rename_cancel.set()
+
+    def _request_scan_restart(self) -> None:
+        if self._scan_thread is None:
+            return
+        self._scan_restart_requested = True
+        self._scan_cancel.set()
 
     # ---------- Scan ----------
     def _primary_action(self) -> None:
@@ -1680,6 +1692,9 @@ class MainWindow(QMainWindow):
     def _start_scan_if_possible(self) -> None:
         self._save_settings()
 
+        if self._rename_thread is not None:
+            return
+
         folder_txt = self.ed_folder.text().strip()
         folder = Path(folder_txt) if folder_txt else None
         if folder is None or not folder.exists() or not folder.is_dir():
@@ -1690,7 +1705,9 @@ class MainWindow(QMainWindow):
             return
 
         if self._scan_thread is not None:
-            self._scan_cancel.set()
+            self._request_scan_restart()
+            self._update_ui_state()
+            return
 
         self._scan_cancel = threading.Event()
         reader = self._build_reader()
@@ -1703,8 +1720,13 @@ class MainWindow(QMainWindow):
         parallel_scan = self.cb_parallel_scan.isChecked()
         parallel_workers = self.cmb_parallel_workers.currentText()
 
+        self._scan_seq += 1
+        scan_id = self._scan_seq
+        self._active_scan_id = scan_id
+
         self._scan_thread = QThread()
         self._scan_worker = ScanWorker(
+            scan_id=scan_id,
             folder=folder,
             recursive=self.cb_recursive.isChecked(),
             reader=reader,
@@ -1729,17 +1751,23 @@ class MainWindow(QMainWindow):
 
         self._scan_worker.finished.connect(self._scan_thread.quit)
         self._scan_worker.failed.connect(self._scan_thread.quit)
-        self._scan_thread.finished.connect(self._cleanup_scan)
+        t = self._scan_thread
+        w = self._scan_worker
+        self._scan_thread.finished.connect(lambda sid=scan_id, tt=t, ww=w: self._cleanup_scan_instance(sid, tt, ww))
 
         self._scan_thread.start()
         self._update_ui_state()
 
-    def _on_scan_row_ready(self, row_obj: object, processed: int, total: int, meta_ok: int) -> None:
+    def _on_scan_row_ready(self, row_obj: object, processed: int, total: int, meta_ok: int, scan_id: int) -> None:
+        if scan_id != self._active_scan_id:
+            return
         if isinstance(row_obj, PreviewRow):
             self.model.append_row(row_obj)
             self.lbl_counts.setText(f"Files: {processed}/{total}   |   Metadata: {meta_ok}/{processed}")
 
-    def _on_scan_finished(self, rows: list, total: int, meta_ok: int, exiftool_info: str) -> None:
+    def _on_scan_finished(self, rows: list, total: int, meta_ok: int, exiftool_info: str, scan_id: int) -> None:
+        if scan_id != self._active_scan_id:
+            return
         rows = list(rows)
         self.model.set_rows(rows)
 
@@ -1750,15 +1778,32 @@ class MainWindow(QMainWindow):
         self._fit_columns_initial()
         self._update_ui_state()
 
-    def _on_scan_failed(self, msg: str) -> None:
+    def _on_scan_failed(self, msg: str, scan_id: int) -> None:
+        if scan_id != self._active_scan_id:
+            return
         log(f"[scan] ERROR {msg}")
         QMessageBox.critical(self, "Scan error", msg)
         self._update_ui_state()
 
-    def _cleanup_scan(self) -> None:
-        self._scan_thread = None
-        self._scan_worker = None
-        self._update_ui_state()
+    def _cleanup_scan_instance(self, scan_id: int, t: QThread, w: QObject) -> None:
+        try:
+            w.deleteLater()
+        except Exception:
+            pass
+        try:
+            t.deleteLater()
+        except Exception:
+            pass
+
+        if scan_id == self._active_scan_id:
+            self._scan_thread = None
+            self._scan_worker = None
+
+            restart = self._scan_restart_requested
+            self._scan_restart_requested = False
+            self._update_ui_state()
+            if restart:
+                QTimer.singleShot(0, self._start_scan_if_possible)
 
     # ---------- Rename / Undo ----------
     def _start_rename(self) -> None:
@@ -1875,9 +1920,10 @@ class MainWindow(QMainWindow):
         folder_ok = Path(self.ed_folder.text().strip()).is_dir()
         scanning = self._scan_thread is not None
         renaming = self._rename_thread is not None
+        busy = scanning or renaming
 
-        self.btn_open.setEnabled(folder_ok and not scanning and not renaming)
-        self.btn_browse.setEnabled(not scanning and not renaming)
+        self.btn_open.setEnabled(folder_ok and not busy)
+        self.btn_browse.setEnabled(not busy)
         self.ed_folder.setEnabled(not renaming)
 
         for w in (
@@ -1886,8 +1932,6 @@ class MainWindow(QMainWindow):
             self.cmb_exiftool, self.cb_parallel_scan, self.cmb_parallel_workers
         ):
             w.setEnabled(not renaming)
-
-        busy = scanning or renaming
 
         self.btn_action.setEnabled(busy or (folder_ok and not scanning and not renaming and len(self.model.rows) > 0))
         self.btn_action.setText("Stop" if busy else "Rename")
