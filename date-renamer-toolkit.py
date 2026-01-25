@@ -20,6 +20,7 @@ from PyQt6.QtCore import (
     QSortFilterProxyModel,
     QThread,
     QTimer,
+    QUrl,
     pyqtSignal,
 )
 from PyQt6.QtGui import (
@@ -85,9 +86,10 @@ except Exception:
     ExifToolWrapper = None
 
 
-APP_NAME = "EXIFrenameX"
+APP_NAME = "Date Renamer Toolkit"
 APP_ORG = "TimTools"
-APP_SETTINGS = "EXIFrenameX_Final"
+APP_SETTINGS = "DateRenamerToolkit"
+APP_SETTINGS_OLD = "EXIFrenameX_Final"
 
 
 # =========================
@@ -101,12 +103,18 @@ def resource_path(relative: str) -> str:
 
 
 def app_icon_path() -> str:
-    # Assets contain ico + icns
+    # New branding first
     if sys.platform.startswith("win"):
-        return resource_path("assets/EXIFrenameX.ico")
-    if sys.platform == "darwin":
-        return resource_path("assets/EXIFrenameX.icns")
-    return resource_path("assets/EXIFrenameX.ico")
+        cand = resource_path("assets/DateRenamerToolkit.ico")
+        fallback = resource_path("assets/EXIFrenameX.ico")
+    elif sys.platform == "darwin":
+        cand = resource_path("assets/DateRenamerToolkit.icns")
+        fallback = resource_path("assets/EXIFrenameX.icns")
+    else:
+        cand = resource_path("assets/DateRenamerToolkit.ico")
+        fallback = resource_path("assets/EXIFrenameX.ico")
+
+    return cand if Path(cand).exists() else fallback
 
 
 # =========================
@@ -203,10 +211,20 @@ def parse_datetime_any(s: str) -> Optional[_dt.datetime]:
 
 
 FILENAME_PATTERNS: List[Tuple[str, re.Pattern[str]]] = [
-    ("IMG_VID_YYYYMMDD_HHMMSS", re.compile(r"\b(?:IMG|VID)[-_]?(\d{8})[_-](\d{6})\b", re.IGNORECASE)),
+    # DJI Fly exports: dji_fly_20251108_164116_...
+    ("DJI_FLY_YYYYMMDD_HHMMSS", re.compile(r"\bDJI[_-]?FLY[_-]((?:19|20)\d{6})[_-](\d{6})\b", re.IGNORECASE)),
+
+    # DJI common: DJI_20251108_164116_...
+    ("DJI_YYYYMMDD_HHMMSS", re.compile(r"\bDJI[_-]((?:19|20)\d{6})[_-](\d{6})\b", re.IGNORECASE)),
+
+    # Generic camera export: 20251111_184839.mp4 (seen in your list)
+    ("YYYYMMDD_HHMMSS", re.compile(r"\b((?:19|20)\d{6})[_-](\d{6})\b")),
+
+    # Android/Apple style: IMG_20250101_120000 / VID_...
+    ("IMG_VID_YYYYMMDD_HHMMSS", re.compile(r"\b(?:IMG|VID)[-_]?((?:19|20)\d{6})[_-](\d{6})\b", re.IGNORECASE)),
+
     ("YYYY-MM-DD_HH-MM-SS", re.compile(r"\b(\d{4})[-_](\d{2})[-_](\d{2})[ _-](\d{2})[-_](\d{2})[-_](\d{2})\b")),
     ("WHATSAPP_IMG_YYYYMMDD", re.compile(r"\bIMG-(\d{8})-WA\d+\b", re.IGNORECASE)),
-    ("DJI_YYYYMMDD_HHMMSS", re.compile(r"\bDJI[_-](\d{8})[_-](\d{6})\b", re.IGNORECASE)),
 ]
 
 
@@ -217,15 +235,18 @@ def parse_date_from_filename(name: str) -> Optional[_dt.datetime]:
         if not m:
             continue
         try:
-            if key in {"IMG_VID_YYYYMMDD_HHMMSS", "DJI_YYYYMMDD_HHMMSS"}:
+            if key in {"IMG_VID_YYYYMMDD_HHMMSS", "DJI_YYYYMMDD_HHMMSS", "DJI_FLY_YYYYMMDD_HHMMSS", "YYYYMMDD_HHMMSS"}:
                 ymd, hms = m.group(1), m.group(2)
                 return _dt.datetime.strptime(ymd + hms, "%Y%m%d%H%M%S")
+
             if key == "YYYY-MM-DD_HH-MM-SS":
                 y, mo, d, hh, mm, ss = m.groups()
                 return _dt.datetime(int(y), int(mo), int(d), int(hh), int(mm), int(ss))
+
             if key == "WHATSAPP_IMG_YYYYMMDD":
                 ymd = m.group(1)
                 return _dt.datetime.strptime(ymd, "%Y%m%d")
+
         except Exception:
             continue
     return None
@@ -281,6 +302,22 @@ class FallbackMode(str):
     FS_MODIFIED = "File modified time"
 
 
+class ExifToolMode(str):
+    AUTO = "Auto (bundled → system)"
+    BUNDLED = "Bundled (packaged)"
+    SYSTEM = "System (PATH)"
+    OFF = "Off"
+
+
+def bundled_exiftool_path() -> Optional[str]:
+    # tools/exiftool/exiftool(.exe)
+    if sys.platform.startswith("win"):
+        p = Path(resource_path("tools/exiftool/exiftool.exe"))
+    else:
+        p = Path(resource_path("tools/exiftool/exiftool"))
+    return str(p) if p.exists() else None
+
+
 @dataclass(frozen=True)
 class DeepOptions:
     parse_filename: bool = True
@@ -295,59 +332,68 @@ class ReadOptions:
 
 
 class ExifToolSession:
-    def __init__(self) -> None:
-        self._wrapper = None
-        self._cli_ok = False
+    def __init__(self, mode: str = ExifToolMode.AUTO) -> None:
+        self.mode = mode
+        self._cmd: Optional[List[str]] = None
+        self._desc: str = "exiftool:disabled"
+        self._version: str = ""
+        self._resolve()
 
-        if ExifToolWrapper is not None:
-            try:
-                self._wrapper = ExifToolWrapper()
-            except Exception:
-                self._wrapper = None
-
-        if self._wrapper is None:
-            self._cli_ok = self._detect_exiftool_cli()
-
-    def _detect_exiftool_cli(self) -> bool:
+    def _probe(self, cmd: List[str]) -> bool:
         try:
-            p = subprocess.run(["exiftool", "-ver"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            return p.returncode == 0
+            p = subprocess.run(cmd + ["-ver"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if p.returncode == 0:
+                self._version = (p.stdout or "").strip()
+                return True
         except Exception:
             return False
+        return False
+
+    def _resolve(self) -> None:
+        if self.mode == ExifToolMode.OFF:
+            return
+
+        bundled = bundled_exiftool_path()
+        candidates: List[Tuple[List[str], str]] = []
+
+        if self.mode in (ExifToolMode.AUTO, ExifToolMode.BUNDLED) and bundled:
+            candidates.append(([bundled], f"bundled:{bundled}"))
+
+        if self.mode in (ExifToolMode.AUTO, ExifToolMode.SYSTEM):
+            candidates.append((["exiftool"], "system:exiftool"))
+
+        for cmd, desc in candidates:
+            if self._probe(cmd):
+                self._cmd = cmd
+                self._desc = desc
+                return
+
+        self._cmd = None
+        self._desc = "exiftool:not_found"
 
     def __enter__(self) -> "ExifToolSession":
-        if self._wrapper is not None:
-            try:
-                self._wrapper.__enter__()
-            except Exception:
-                self._wrapper = None
-                self._cli_ok = self._detect_exiftool_cli()
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
-        if self._wrapper is not None:
-            try:
-                self._wrapper.__exit__(exc_type, exc, tb)
-            except Exception:
-                pass
+        return None
 
     def available(self) -> bool:
-        return self._wrapper is not None or self._cli_ok
+        return self._cmd is not None
+
+    def info(self) -> str:
+        if not self.available():
+            return self._desc
+        return f"{self._desc} v{self._version}"
 
     def metadata(self, file_path: str) -> Dict[str, Any]:
-        if self._wrapper is not None:
-            try:
-                return dict(self._wrapper.get_metadata(file_path) or {})
-            except Exception:
-                return {}
-        if self._cli_ok:
-            return self._cli_metadata(file_path)
-        return {}
+        if not self._cmd:
+            return {}
+        return self._cli_metadata(file_path)
 
     def _cli_metadata(self, file_path: str) -> Dict[str, Any]:
         try:
             p = subprocess.run(
-                ["exiftool", "-j", "-G", "-s", "-n", file_path],
+                self._cmd + ["-j", "-G", "-s", file_path],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
@@ -687,7 +733,7 @@ class PreviewFilter(QSortFilterProxyModel):
 # Workers
 # =========================
 class ScanWorker(QObject):
-    finished = pyqtSignal(list, int, int)  # rows, total_files, meta_ok
+    finished = pyqtSignal(list, int, int, str)  # rows, total_files, meta_ok, exiftool_info
     failed = pyqtSignal(str)
 
     def __init__(
@@ -699,6 +745,7 @@ class ScanWorker(QObject):
         prefix: str,
         suffix: str,
         pattern: str,
+        exiftool_mode: str,
         cancel_event: threading.Event,
     ):
         super().__init__()
@@ -709,6 +756,7 @@ class ScanWorker(QObject):
         self.prefix = prefix
         self.suffix = suffix
         self.pattern = pattern
+        self.exiftool_mode = exiftool_mode
         self.cancel = cancel_event
 
     def _iter_files(self) -> Iterable[Path]:
@@ -730,13 +778,11 @@ class ScanWorker(QObject):
             rows: List[PreviewRow] = []
             total = 0
             meta_ok = 0
-            used_names: set[str] = set()
+            used: Dict[Path, set[str]] = {}
 
-            with ExifToolSession() as exiftool:
-                if exiftool.available():
-                    log("[scan] ExifTool available -> preferred path")
-                else:
-                    log("[scan] ExifTool not available -> fallback readers")
+            with ExifToolSession(mode=self.exiftool_mode) as exiftool:
+                info = exiftool.info()
+                log(f"[scan] {info}")
 
                 for p in self._iter_files():
                     if self.cancel.is_set():
@@ -752,10 +798,13 @@ class ScanWorker(QObject):
                         rows.append(PreviewRow(p.name, "(no timestamp)", dt, src, p, "SKIP (missing timestamp)"))
                         continue
 
-                    new_unique = unique_name_in_folder(p.parent, new, used_names)
+                    folder = p.parent
+                    if folder not in used:
+                        used[folder] = set()
+                    new_unique = unique_name_in_folder(folder, new, used[folder])
                     rows.append(PreviewRow(p.name, new_unique, dt, src, p, "OK"))
 
-            self.finished.emit(rows, total, meta_ok)
+            self.finished.emit(rows, total, meta_ok, info)
 
         except Exception as e:
             self.failed.emit(f"{type(e).__name__}: {e}")
@@ -949,6 +998,22 @@ def apply_chatgpt_dark(app: QApplication) -> None:
         QPushButton:pressed { background: #222222; }
         QPushButton:disabled { color: #8c8c8c; background: #222222; border: 1px solid #262626; }
 
+        QPushButton[primary="true"] {
+            background: #f3f3f3;
+            color: #111111;
+            border: 1px solid #f3f3f3;
+            font-weight: 800;
+        }
+        QPushButton[primary="true"]:hover { background: #ffffff; }
+
+        QPushButton[danger="true"] {
+            background: #3a2020;
+            border: 1px solid #5a2a2a;
+            color: #ffd6d6;
+            font-weight: 800;
+        }
+        QPushButton[danger="true"]:hover { background: #442626; }
+
         QPushButton#Primary {
             background: #f3f3f3;
             color: #111111;
@@ -1033,6 +1098,7 @@ class MainWindow(QMainWindow):
         self.resize(1320, 760)
 
         self.settings = QSettings(APP_ORG, APP_SETTINGS)
+        self._migrate_settings_once()
 
         self._scan_thread: Optional[QThread] = None
         self._scan_worker: Optional[ScanWorker] = None
@@ -1180,6 +1246,10 @@ class MainWindow(QMainWindow):
         self.cmb_fallback.setCurrentText(FallbackMode.OFF)
         self.cmb_fallback.currentIndexChanged.connect(lambda: self._debounce.start())
 
+        self.cb_filename_date = QCheckBox("Use filename date when metadata is missing (recommended)")
+        self.cb_filename_date.setChecked(True)
+        self.cb_filename_date.stateChanged.connect(lambda: self._debounce.start())
+
         self.cb_recursive = QCheckBox("Include subfolders (recursive)")
         self.cb_recursive.setChecked(True)
         self.cb_recursive.stateChanged.connect(lambda: self._debounce.start())
@@ -1205,6 +1275,9 @@ class MainWindow(QMainWindow):
         grid.addWidget(self.cmb_fallback, r, 1, 1, 2)
         r += 1
 
+        grid.addWidget(self.cb_filename_date, r, 0, 1, 3)
+        r += 1
+
         grid.addWidget(self.cb_recursive, r, 0, 1, 3)
         r += 1
 
@@ -1224,9 +1297,18 @@ class MainWindow(QMainWindow):
         adv_l.setContentsMargins(14, 12, 14, 12)
         adv_l.setSpacing(10)
 
-        self.cb_deep_filename = QCheckBox("Deep: parse date from filename")
-        self.cb_deep_filename.setChecked(True)
-        self.cb_deep_filename.stateChanged.connect(lambda: self._debounce.start())
+        row = QHBoxLayout()
+        row.addWidget(QLabel("ExifTool"))
+        self.cmb_exiftool = QComboBox()
+        self.cmb_exiftool.addItems([ExifToolMode.AUTO, ExifToolMode.BUNDLED, ExifToolMode.SYSTEM, ExifToolMode.OFF])
+        self.cmb_exiftool.setCurrentText(ExifToolMode.AUTO)
+        self.cmb_exiftool.currentIndexChanged.connect(lambda: self._debounce.start())
+        row.addWidget(self.cmb_exiftool, 1)
+        adv_l.addLayout(row)
+
+        self.lbl_exiftool_info = QLabel("ExifTool: (scan not run yet)")
+        self.lbl_exiftool_info.setObjectName("Hint")
+        adv_l.addWidget(self.lbl_exiftool_info)
 
         self.cb_deep_xmp = QCheckBox("Deep: read .xmp sidecar if present")
         self.cb_deep_xmp.setChecked(True)
@@ -1236,7 +1318,6 @@ class MainWindow(QMainWindow):
         self.cb_deep_takeout.setChecked(True)
         self.cb_deep_takeout.stateChanged.connect(lambda: self._debounce.start())
 
-        adv_l.addWidget(self.cb_deep_filename)
         adv_l.addWidget(self.cb_deep_xmp)
         adv_l.addWidget(self.cb_deep_takeout)
 
@@ -1255,24 +1336,21 @@ class MainWindow(QMainWindow):
         run_row = QHBoxLayout()
         run_row.setSpacing(12)
 
-        self.btn_rename = QPushButton("Rename")
-        self.btn_stop = QPushButton("Stop")
         self.btn_undo = QPushButton("Undo")
+        self.btn_action = QPushButton("Rename")
 
-        self.btn_rename.setObjectName("Primary")
-        self.btn_stop.setObjectName("Danger")
+        self.btn_action.setProperty("primary", True)
+        self.btn_action.setProperty("danger", False)
 
-        for b in (self.btn_rename, self.btn_stop, self.btn_undo):
-            b.setMinimumHeight(42)
+        for b in (self.btn_action, self.btn_undo):
+            b.setMinimumHeight(46)
             b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
-        self.btn_rename.clicked.connect(self._start_rename)
-        self.btn_stop.clicked.connect(self._stop_all)
+        self.btn_action.clicked.connect(self._primary_action)
         self.btn_undo.clicked.connect(self._undo_last)
 
-        run_row.addWidget(self.btn_rename)
-        run_row.addWidget(self.btn_stop)
-        run_row.addWidget(self.btn_undo)
+        run_row.addWidget(self.btn_action, 3)
+        run_row.addWidget(self.btn_undo, 1)
         cr.addLayout(run_row)
         cr.addStretch(1)  # keep header at top visually
 
@@ -1322,6 +1400,24 @@ class MainWindow(QMainWindow):
         self.table.setColumnWidth(1, max(220, w - half))
 
     # ---------- Settings ----------
+    def _migrate_settings_once(self) -> None:
+        if self.settings.value("_migrated_from_exifrenamex", False, type=bool):
+            return
+
+        old = QSettings(APP_ORG, APP_SETTINGS_OLD)
+        try:
+            keys = old.allKeys()
+        except Exception:
+            keys = []
+
+        # Nur migrieren, wenn wirklich alte Settings existieren
+        if keys:
+            for k in keys:
+                if self.settings.value(k, None) in (None, ""):
+                    self.settings.setValue(k, old.value(k))
+
+        self.settings.setValue("_migrated_from_exifrenamex", True)
+
     def _load_settings(self) -> None:
         self.ed_folder.setText(self.settings.value("folder/path", "", type=str))
         self.cb_recursive.setChecked(self.settings.value("naming/recursive", True, type=bool))
@@ -1339,7 +1435,7 @@ class MainWindow(QMainWindow):
         if i >= 0:
             self.cmb_fallback.setCurrentIndex(i)
 
-        self.cb_deep_filename.setChecked(self.settings.value("deep/filename", True, type=bool))
+        self.cb_filename_date.setChecked(self.settings.value("deep/filename", True, type=bool))
         self.cb_deep_xmp.setChecked(self.settings.value("deep/xmp", True, type=bool))
         self.cb_deep_takeout.setChecked(self.settings.value("deep/takeout", True, type=bool))
 
@@ -1351,7 +1447,7 @@ class MainWindow(QMainWindow):
         self.settings.setValue("naming/suffix", self.ed_suffix.text())
         self.settings.setValue("naming/pattern", self.cmb_pattern.currentText())
         self.settings.setValue("naming/fallback", self.cmb_fallback.currentText())
-        self.settings.setValue("deep/filename", self.cb_deep_filename.isChecked())
+        self.settings.setValue("deep/filename", self.cb_filename_date.isChecked())
         self.settings.setValue("deep/xmp", self.cb_deep_xmp.isChecked())
         self.settings.setValue("deep/takeout", self.cb_deep_takeout.isChecked())
 
@@ -1370,7 +1466,7 @@ class MainWindow(QMainWindow):
         if not p.exists() or not p.is_dir():
             QMessageBox.information(self, "Open", "Select a valid folder first.")
             return
-        QDesktopServices.openUrl(p.as_uri())  # cross-platform
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(p)))
 
     def _show_help(self) -> None:
         QMessageBox.information(
@@ -1392,9 +1488,17 @@ class MainWindow(QMainWindow):
             self._rename_cancel.set()
 
     # ---------- Scan ----------
+    def _primary_action(self) -> None:
+        scanning = self._scan_thread is not None
+        renaming = self._rename_thread is not None
+        if scanning or renaming:
+            self._stop_all()
+            return
+        self._start_rename()
+
     def _build_reader(self) -> MetadataReader:
         deep = DeepOptions(
-            parse_filename=self.cb_deep_filename.isChecked(),
+            parse_filename=self.cb_filename_date.isChecked(),
             read_xmp_sidecar=self.cb_deep_xmp.isChecked(),
             read_takeout_json=self.cb_deep_takeout.isChecked(),
         )
@@ -1423,6 +1527,7 @@ class MainWindow(QMainWindow):
         prefix = self.ed_prefix.text()
         suffix = self.ed_suffix.text()
         pattern = self.cmb_pattern.currentText()
+        exiftool_mode = getattr(self, "cmb_exiftool", None).currentText() if hasattr(self, "cmb_exiftool") else ExifToolMode.AUTO
 
         self._scan_thread = QThread()
         self._scan_worker = ScanWorker(
@@ -1433,6 +1538,7 @@ class MainWindow(QMainWindow):
             prefix=prefix,
             suffix=suffix,
             pattern=pattern,
+            exiftool_mode=exiftool_mode,
             cancel_event=self._scan_cancel,
         )
         self._scan_worker.moveToThread(self._scan_thread)
@@ -1448,12 +1554,13 @@ class MainWindow(QMainWindow):
         self._scan_thread.start()
         self._update_ui_state()
 
-    def _on_scan_finished(self, rows: list, total: int, meta_ok: int) -> None:
+    def _on_scan_finished(self, rows: list, total: int, meta_ok: int, exiftool_info: str) -> None:
         rows = list(rows)
         self.model.set_rows(rows)
 
         self.lbl_counts.setText(f"Files: {total}   |   Metadata: {meta_ok}/{total}")
         log(f"[scan] files={total} meta={meta_ok} rows={len(rows)}")
+        self.lbl_exiftool_info.setText(f"ExifTool: {exiftool_info}")
 
         self._fit_columns_initial()
         self._update_ui_state()
@@ -1590,13 +1697,21 @@ class MainWindow(QMainWindow):
 
         for w in (
             self.cb_recursive, self.cmb_fallback, self.cmb_format, self.ed_prefix, self.ed_suffix,
-            self.cmb_pattern, self.btn_adv, self.cb_deep_filename, self.cb_deep_xmp, self.cb_deep_takeout
+            self.cmb_pattern, self.btn_adv, self.cb_filename_date, self.cb_deep_xmp, self.cb_deep_takeout, self.cmb_exiftool
         ):
             w.setEnabled(not renaming)
 
-        self.btn_rename.setEnabled(folder_ok and not scanning and not renaming and len(self.model.rows) > 0)
-        self.btn_stop.setEnabled(scanning or renaming)
-        self.btn_undo.setEnabled(not renaming and not scanning and bool(self._undo_pairs))
+        busy = scanning or renaming
+
+        self.btn_action.setEnabled(busy or (folder_ok and not scanning and not renaming and len(self.model.rows) > 0))
+        self.btn_action.setText("Stop" if busy else "Rename")
+        self.btn_action.setProperty("primary", not busy)
+        self.btn_action.setProperty("danger", busy)
+        self.btn_action.style().unpolish(self.btn_action)
+        self.btn_action.style().polish(self.btn_action)
+        self.btn_action.update()
+
+        self.btn_undo.setEnabled(not busy and bool(self._undo_pairs))
 
         if initial:
             self.btn_undo.setEnabled(False)
