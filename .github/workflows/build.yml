@@ -12,36 +12,48 @@ concurrency:
 env:
   EXIFTOOL_VER: "13.45"
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
+  PIP_NO_PYTHON_VERSION_WARNING: "1"
+  PYTHONUNBUFFERED: "1"
 
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
-      - uses: actions/setup-python@v5
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: "pip"
-          cache-dependency-path: "requirements.txt"
+          cache-dependency-path: |
+            requirements.txt
 
       - name: Sanity check (repo files)
         shell: bash
         run: |
+          set -euo pipefail
           ls -la
           test -f requirements.txt
           test -f date-renamer-toolkit.spec
+          test -f date-renamer-toolkit.py
+          test -d assets
 
-      - name: Install deps
+      - name: Install deps (deterministic build toolchain)
         shell: bash
         run: |
+          set -euo pipefail
           python -m pip install -r requirements.txt
-          python -m pip install pyinstaller
+          python -m pip install "pyinstaller==6.18.0" "pyinstaller-hooks-contrib==2026.0"
 
       # ---------------- EXIFTOOL WINDOWS ----------------
       - name: Fetch ExifTool (Windows 64-bit)
@@ -49,7 +61,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $ver = "${{ env.EXIFTOOL_VER }}"
+          $ver  = "${{ env.EXIFTOOL_VER }}"
           $dest = "assets\exiftool\windows"
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
 
@@ -71,6 +83,7 @@ jobs:
           if (-not $kexe) { throw "exiftool(-k).exe not found after extract" }
           Copy-Item $kexe.FullName (Join-Path $dest "exiftool.exe") -Force
 
+          # Hard guardrail: exiftool_files must be present
           if (-not (Test-Path (Join-Path $dest "exiftool_files"))) {
             throw "exiftool_files folder missing (must ship together with exiftool.exe)"
           }
@@ -99,14 +112,19 @@ jobs:
 
           chmod +x "$dest/exiftool" || true
 
+      - name: Verify ExifTool payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            ls -la assets/exiftool/windows || true
+          elif [ "${RUNNER_OS}" = "macOS" ]; then
+            ls -la assets/exiftool/macos || true
+          fi
+
       # ---------------- BUILD ----------------
       - name: Build with PyInstaller
         shell: bash
         run: |
-          pyinstaller date-renamer-toolkit.spec
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: DateRenamerToolkit-${{ runner.os }}
-          path: dist/**
+          set -euo pipefail
+          pyinstaller --noconfirm date-renamer-toolkit.spec
