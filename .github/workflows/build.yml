@@ -45,8 +45,8 @@ jobs:
           test -d assets
 
           # Branding assets must exist (at least one per OS)
-          test -f assets/DateRenamerToolkit.ico || true
-          test -f assets/DateRenamerToolkit.icns || true
+          test -f assets/DateRenamer.ico || true
+          test -f assets/DateRenamer.icns || true
 
       - name: Install deps (pinned toolchain)
         shell: bash
