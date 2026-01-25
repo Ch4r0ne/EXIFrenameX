@@ -7,14 +7,16 @@ block_cipher = None
 IS_WIN = sys.platform.startswith("win")
 IS_MAC = sys.platform == "darwin"
 
-def collect_assets_for_onefile():
+def collect_tree(root_dir: str):
     """
-    For ONEFILE: datas must be (source_file, dest_dir_in_meipass).
-    We must avoid bundling macOS ExifTool test-suite (t/) to prevent Mach-O issues.
+    ONEFILE: datas must be (source_file, dest_dir_in_meipass).
+    We include:
+      - assets/ (icons, UI assets)
+      - tools/  (bundled ExifTool)
     """
-    src = Path("assets")
+    src = Path(root_dir)
     if not src.exists():
-        raise SystemExit("Missing directory: assets")
+        return []
 
     datas = []
     for p in src.rglob("*"):
@@ -24,28 +26,30 @@ def collect_assets_for_onefile():
         rel_posix = p.as_posix()
 
         if IS_MAC:
-            # ExifTool tar includes tests with Mach-O sample files (break PyInstaller processing)
-            if "assets/exiftool/macos/t/" in rel_posix:
+            # Defensive: do not ever bundle ExifTool tests if present
+            if "/t/" in rel_posix and ("tools/exiftool/" in rel_posix or "assets/exiftool/" in rel_posix):
                 continue
             if rel_posix.endswith(".macho"):
                 continue
 
         rel = p.relative_to(src)
-        dest_dir = str(Path("assets") / rel.parent).replace("\\", "/")
+        dest_dir = str(Path(root_dir) / rel.parent).replace("\\", "/")
         datas.append((str(p), dest_dir))
-
     return datas
 
-datas = collect_assets_for_onefile()
 
-# Icons
+datas = []
+datas += collect_tree("assets")
+datas += collect_tree("tools")
+
+# Icons (new branding)
 icon = None
 if IS_WIN:
-    ico = Path("assets/EXIFrenameX.ico")
+    ico = Path("assets/DateRenamerToolkit.ico")
     if ico.exists():
         icon = str(ico)
 elif IS_MAC:
-    icns = Path("assets/EXIFrenameX.icns")
+    icns = Path("assets/DateRenamerToolkit.icns")
     if icns.exists():
         icon = str(icns)
 
