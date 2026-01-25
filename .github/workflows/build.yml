@@ -5,8 +5,13 @@ on:
   push:
     tags: ["v*"]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
-  EXIFTOOL_VER: "13.45"   # pinnen für reproduzierbare Builds
+  EXIFTOOL_VER: "13.45"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
 
 jobs:
   build:
@@ -14,6 +19,7 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
 
     steps:
       - uses: actions/checkout@v4
@@ -21,14 +27,23 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: "requirements.txt"
+
+      - name: Sanity check (repo files)
+        shell: bash
+        run: |
+          ls -la
+          test -f requirements.txt
+          test -f date-renamer-toolkit.spec
 
       - name: Install deps
+        shell: bash
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pyinstaller
+          python -m pip install -r requirements.txt
+          python -m pip install pyinstaller
 
-      # -------- EXIFTOOL: WINDOWS (exe + exiftool_files) --------
+      # ---------------- EXIFTOOL WINDOWS ----------------
       - name: Fetch ExifTool (Windows 64-bit)
         if: runner.os == 'Windows'
         shell: pwsh
@@ -44,7 +59,7 @@ jobs:
 
           Expand-Archive -Path $zip -DestinationPath $dest -Force
 
-          # Zip enthält i.d.R. Unterordner exiftool-<ver>_64\...
+          # Flatten: exiftool-<ver>_64/* -> assets/exiftool/windows/
           $sub = Get-ChildItem $dest -Directory | Select-Object -First 1
           if ($sub) {
             Copy-Item -Path (Join-Path $sub.FullName "*") -Destination $dest -Recurse -Force
@@ -56,12 +71,11 @@ jobs:
           if (-not $kexe) { throw "exiftool(-k).exe not found after extract" }
           Copy-Item $kexe.FullName (Join-Path $dest "exiftool.exe") -Force
 
-          # Hard check: exiftool_files muss neben exiftool.exe liegen
           if (-not (Test-Path (Join-Path $dest "exiftool_files"))) {
-            throw "exiftool_files folder missing (must ship together with exe)"
+            throw "exiftool_files folder missing (must ship together with exiftool.exe)"
           }
 
-      # -------- EXIFTOOL: MACOS (voller tar.gz: script + lib) --------
+      # ---------------- EXIFTOOL MACOS ----------------
       - name: Fetch ExifTool (macOS full distribution)
         if: runner.os == 'macOS'
         shell: bash
@@ -75,23 +89,19 @@ jobs:
           url="https://sourceforge.net/projects/exiftool/files/Image-ExifTool-${ver}.tar.gz/download"
           curl -L "$url" -o "$tgz"
 
-          # extract
           tar -xzf "$tgz" -C "$dest"
 
-          # tar enthält Unterordner Image-ExifTool-<ver>/...
           subdir="$(find "$dest" -maxdepth 1 -type d -name "Image-ExifTool-*" | head -n 1)"
-          if [ -z "$subdir" ]; then
-            echo "No Image-ExifTool-* dir found" && exit 1
-          fi
+          test -n "$subdir"
 
-          # flatten: exiftool + lib + sonstige nötige files nach assets/exiftool/macos/
           cp -R "$subdir/"* "$dest/"
           rm -rf "$subdir"
 
           chmod +x "$dest/exiftool" || true
 
-      # -------- BUILD --------
-      - name: Build with PyInstaller (spec)
+      # ---------------- BUILD ----------------
+      - name: Build with PyInstaller
+        shell: bash
         run: |
           pyinstaller date-renamer-toolkit.spec
 
