@@ -1,12 +1,15 @@
 # -*- mode: python ; coding: utf-8 -*-
+import sys
 from pathlib import Path
 
 block_cipher = None
 
+IS_WIN = sys.platform.startswith("win")
+IS_MAC = sys.platform == "darwin"
+
 def collect_dir_as_datas(src_dir: str, dest_root: str):
     """
-    Return datas in the format PyInstaller expects:
-    [(source_file, destination_dir), ...]
+    PyInstaller expects: [(source_file, destination_dir), ...]
     destination_dir is relative inside the packaged app.
     """
     src = Path(src_dir)
@@ -15,13 +18,36 @@ def collect_dir_as_datas(src_dir: str, dest_root: str):
 
     datas = []
     for p in src.rglob("*"):
-        if p.is_file():
-            rel = p.relative_to(src)
-            dest_dir = str(Path(dest_root) / rel.parent).replace("\\", "/")
-            datas.append((str(p), dest_dir))
+        if not p.is_file():
+            continue
+
+        rel_posix = p.as_posix()
+
+        # --- Hard excludes (macOS: ExifTool tests contain problematic Mach-O samples) ---
+        if IS_MAC:
+            if "assets/exiftool/macos/t/" in rel_posix:
+                continue
+            if rel_posix.endswith(".macho"):
+                continue
+
+        # Normal mapping
+        rel = p.relative_to(src)
+        dest_dir = str(Path(dest_root) / rel.parent).replace("\\", "/")
+        datas.append((str(p), dest_dir))
+
     return datas
 
+# Bundle all assets, but with hard excludes above on macOS
 datas = collect_dir_as_datas("assets", "assets")
+
+# Icon selection (embed for Windows exe, use for macOS .app)
+icon = None
+if IS_WIN:
+    ico = Path("assets/EXIFrenameX.ico")
+    icon = str(ico) if ico.exists() else None
+elif IS_MAC:
+    icns = Path("assets/EXIFrenameX.icns")
+    icon = str(icns) if icns.exists() else None
 
 a = Analysis(
     ["date-renamer-toolkit.py"],
@@ -56,5 +82,26 @@ exe = EXE(
     [],
     name="DateRenamerToolkit",
     console=False,
-    upx=True,
+    icon=icon,
+    upx=True if IS_WIN else False,
 )
+
+# Onedir output (robuster für Qt + Assets)
+coll = COLLECT(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=False,
+    upx=True if IS_WIN else False,
+    name="DateRenamerToolkit",
+)
+
+# macOS: build .app bundle with proper icon
+if IS_MAC:
+    app = BUNDLE(
+        coll,
+        name="DateRenamerToolkit.app",
+        icon=icon,
+        bundle_identifier="de.technetpro.daterenamertoolkit",
+    )
