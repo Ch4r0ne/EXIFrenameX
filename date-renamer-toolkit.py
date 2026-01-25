@@ -48,6 +48,7 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QProgressBar,
     QSizePolicy,
     QStyle,
     QProxyStyle,
@@ -816,8 +817,8 @@ class PreviewFilter(QSortFilterProxyModel):
 # Workers
 # =========================
 class ScanWorker(QObject):
-    row_ready = pyqtSignal(object, int, int, int, int)  # row, processed, total, meta_ok, scan_id
-    finished = pyqtSignal(list, int, int, str, int)  # rows, total_files, meta_ok, exiftool_info, scan_id
+    row_ready = pyqtSignal(object, int, int, int, int)  # row, processed, total, renamable_count, scan_id
+    finished = pyqtSignal(list, int, int, str, int)  # rows, total_files, renamable_count, exiftool_info, scan_id
     failed = pyqtSignal(str, int)
 
     def __init__(
@@ -896,15 +897,14 @@ class ScanWorker(QObject):
 
                     md = exif_map.get(_norm(str(p)))
                     dt, src = self.reader.best_datetime(p, exiftool=None, exiftool_md=md)
-                    ok = dt is not None
 
                     new = format_new_name(dt, p.name, self.fmt, self.prefix, self.suffix, self.pattern)
                     if new is None:
                         row = PreviewRow(p.name, "(no timestamp)", dt, src, p, "SKIP (missing timestamp)")
-                        return idx, row, ok
+                        return idx, row, False
 
                     row = PreviewRow(p.name, new, dt, src, p, "OK")
-                    return idx, row, ok
+                    return idx, row, True
 
                 def resolve_workers() -> int:
                     if (self.parallel_workers or "").strip().lower() != "auto":
@@ -921,10 +921,10 @@ class ScanWorker(QObject):
                 results: Dict[int, Tuple[PreviewRow, bool]] = {}
                 next_emit = 0
                 processed = 0
-                meta_ok = 0
+                renamable_count = 0
 
                 def emit_ready_up_to() -> None:
-                    nonlocal next_emit, processed, meta_ok
+                    nonlocal next_emit, processed, renamable_count
                     while next_emit in results:
                         row, ok = results.pop(next_emit)
                         if row.status == "OK":
@@ -943,8 +943,8 @@ class ScanWorker(QObject):
                         rows.append(row)
                         processed += 1
                         if ok:
-                            meta_ok += 1
-                        self.row_ready.emit(row, processed, total, meta_ok, self.scan_id)
+                            renamable_count += 1
+                        self.row_ready.emit(row, processed, total, renamable_count, self.scan_id)
                         next_emit += 1
 
                 if not parallel:
@@ -955,7 +955,7 @@ class ScanWorker(QObject):
                         results[i] = (row, ok)
                         emit_ready_up_to()
 
-                    self.finished.emit(rows, total, meta_ok, info, self.scan_id)
+                    self.finished.emit(rows, total, renamable_count, info, self.scan_id)
                     return
 
                 workers = resolve_workers()
@@ -971,7 +971,7 @@ class ScanWorker(QObject):
                         emit_ready_up_to()
 
                 emit_ready_up_to()
-                self.finished.emit(rows, total, meta_ok, info, self.scan_id)
+                self.finished.emit(rows, total, renamable_count, info, self.scan_id)
 
         except Exception as e:
             self.failed.emit(f"{type(e).__name__}: {e}", self.scan_id)
@@ -1141,6 +1141,7 @@ def apply_enterprise_dark_theme(app: QApplication) -> None:
         QLabel#H1 { font-size: 17pt; font-weight: 800; }
         QLabel#SectionTitle { font-size: 11pt; font-weight: 800; color: #F6F6F6; }
         QLabel#Hint { color: #CFCFCF; font-weight: 650; }
+        QLabel#Status { color: #BFBFBF; font-weight: 700; }
 
         /* Inputs */
         QLineEdit, QComboBox, QTextEdit {
@@ -1222,6 +1223,22 @@ def apply_enterprise_dark_theme(app: QApplication) -> None:
             text-align: left;
         }
         QTableView::item { padding: 8px 10px; }
+
+        QFrame#InspectorPanel {
+            background: #1b1b1b;
+            border: 1px solid #2a2a2a;
+            border-radius: 12px;
+        }
+
+        QProgressBar {
+            background: #2a2a2a;
+            border: 0px;
+            border-radius: 2px;
+        }
+        QProgressBar::chunk {
+            background: #cfa9ff;
+            border-radius: 2px;
+        }
 
         /* Professional scrollbars (no overlay-flicker) */
         QScrollBar:vertical {
@@ -1406,7 +1423,7 @@ class MainWindow(QMainWindow):
         cf.addLayout(row_path)
 
         # CLEAN counts: no boxes/pills
-        self.lbl_counts = QLabel("Files: 0   |   Metadata: 0/0")
+        self.lbl_counts = QLabel("Renamable: 0   |   Skipped: 0")
         self.lbl_counts.setObjectName("Hint")
         cf.addWidget(self.lbl_counts)
 
@@ -1584,11 +1601,31 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(1, 1)
         splitter.setSizes([440, 980])
 
-        self.card_preview = self._card("Preview")
-        right.addWidget(self.card_preview, 1)
+        self.card_preview = QFrame()
+        self.card_preview.setObjectName("Card")
+        cp = QVBoxLayout(self.card_preview)
+        cp.setContentsMargins(16, 14, 16, 14)
+        cp.setSpacing(12)
 
-        cp = self.card_preview.layout()
-        assert isinstance(cp, QVBoxLayout)
+        preview_header = QHBoxLayout()
+        preview_title = QLabel("Preview")
+        preview_title.setObjectName("SectionTitle")
+        self.lbl_preview_status = QLabel("Ready")
+        self.lbl_preview_status.setObjectName("Status")
+        preview_header.addWidget(preview_title)
+        preview_header.addStretch(1)
+        preview_header.addWidget(self.lbl_preview_status)
+        cp.addLayout(preview_header)
+
+        self.preview_progress = QProgressBar()
+        self.preview_progress.setTextVisible(False)
+        self.preview_progress.setFixedHeight(4)
+        self.preview_progress.setRange(0, 1)
+        self.preview_progress.setValue(0)
+        self.preview_progress.setVisible(False)
+        cp.addWidget(self.preview_progress)
+
+        right.addWidget(self.card_preview, 1)
 
         self.ed_filter = QLineEdit()
         self.ed_filter.setPlaceholderText("Filter (old/new)…")
@@ -1616,8 +1653,39 @@ class MainWindow(QMainWindow):
 
         self.table.setShowGrid(False)
         self.table.verticalHeader().setDefaultSectionSize(30)
+        self.table.selectionModel().currentChanged.connect(self._on_current_changed)
 
         cp.addWidget(self.table, 1)
+
+        self.inspector_panel = QFrame()
+        self.inspector_panel.setObjectName("InspectorPanel")
+        inspector_layout = QGridLayout(self.inspector_panel)
+        inspector_layout.setContentsMargins(12, 10, 12, 10)
+        inspector_layout.setHorizontalSpacing(10)
+        inspector_layout.setVerticalSpacing(6)
+
+        inspector_layout.addWidget(QLabel("Path"), 0, 0, Qt.AlignmentFlag.AlignTop)
+        self.lbl_inspector_path = QLabel("-")
+        self.lbl_inspector_path.setWordWrap(True)
+        self.lbl_inspector_path.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        inspector_layout.addWidget(self.lbl_inspector_path, 0, 1)
+
+        inspector_layout.addWidget(QLabel("Timestamp"), 1, 0)
+        self.lbl_inspector_timestamp = QLabel("-")
+        self.lbl_inspector_timestamp.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        inspector_layout.addWidget(self.lbl_inspector_timestamp, 1, 1)
+
+        inspector_layout.addWidget(QLabel("Source"), 2, 0)
+        self.lbl_inspector_source = QLabel("-")
+        self.lbl_inspector_source.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        inspector_layout.addWidget(self.lbl_inspector_source, 2, 1)
+
+        inspector_layout.addWidget(QLabel("Status"), 3, 0)
+        self.lbl_inspector_status = QLabel("-")
+        self.lbl_inspector_status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        inspector_layout.addWidget(self.lbl_inspector_status, 3, 1)
+
+        cp.addWidget(self.inspector_panel)
 
         # --- Button variants (marketing clean) ---
         btn_help.setProperty("variant", "secondary")
@@ -1631,6 +1699,51 @@ class MainWindow(QMainWindow):
         # --- Remove icons explicitly (even if some style injects them) ---
         for b in (btn_help, btn_logs, self.btn_browse, self.btn_open, self.btn_action, self.btn_undo):
             b.setIcon(QIcon())
+
+        self._clear_inspector()
+
+    def _set_preview_status(self, text: str, processed: int = 0, total: int = 0) -> None:
+        self.lbl_preview_status.setText(text)
+        if total > 0:
+            self.preview_progress.setVisible(True)
+            self.preview_progress.setRange(0, total)
+            self.preview_progress.setValue(min(processed, total))
+        else:
+            self.preview_progress.setVisible(False)
+            self.preview_progress.setRange(0, 1)
+            self.preview_progress.setValue(0)
+
+    def _update_counts(self, renamable: int, total: int) -> None:
+        skipped = max(0, total - renamable)
+        self.lbl_counts.setText(f"Renamable: {renamable}   |   Skipped: {skipped}")
+
+    def _update_counts_from_rows(self, rows: List[PreviewRow]) -> None:
+        total = len(rows)
+        renamable = sum(1 for r in rows if r.status == "OK")
+        self._update_counts(renamable, total)
+
+    def _clear_inspector(self) -> None:
+        self.lbl_inspector_path.setText("Select a row to see details.")
+        self.lbl_inspector_timestamp.setText("-")
+        self.lbl_inspector_source.setText("-")
+        self.lbl_inspector_status.setText("-")
+
+    def _on_current_changed(self, current: QModelIndex, previous: QModelIndex) -> None:
+        if not current.isValid():
+            self._clear_inspector()
+            return
+
+        src_idx = self.proxy.mapToSource(current)
+        if not src_idx.isValid() or src_idx.row() >= len(self.model.rows):
+            self._clear_inspector()
+            return
+
+        row = self.model.rows[src_idx.row()]
+        dt = row.dt.isoformat(sep=" ") if row.dt else "-"
+        self.lbl_inspector_path.setText(str(row.path))
+        self.lbl_inspector_timestamp.setText(dt)
+        self.lbl_inspector_source.setText(row.source or "-")
+        self.lbl_inspector_status.setText(row.status or "-")
 
     def _fit_columns_initial(self) -> None:
         # Split clean 50/50 on start and after resizes
@@ -1781,6 +1894,8 @@ class MainWindow(QMainWindow):
         self._pending_naming_apply = False
 
         if not self.model.rows:
+            self._update_counts(0, 0)
+            self._clear_inspector()
             self._update_ui_state()
             return
 
@@ -1819,6 +1934,8 @@ class MainWindow(QMainWindow):
 
         self.model.set_rows(new_rows)
         self._fit_columns_initial()
+        self._clear_inspector()
+        self._update_counts_from_rows(self.model.rows)
         self._update_ui_state()
 
     def _flush_row_buffer(self) -> None:
@@ -1831,8 +1948,9 @@ class MainWindow(QMainWindow):
         self.model.append_rows(batch)
 
         if self._scan_progress:
-            processed, total, meta_ok = self._scan_progress
-            self.lbl_counts.setText(f"Files: {processed}/{total}   |   Metadata: {meta_ok}/{processed}")
+            processed, total, renamable = self._scan_progress
+            self._update_counts(renamable, processed)
+            self._set_preview_status(f"Scanning… ({processed}/{total})", processed, total)
 
         if not self._row_buffer:
             self._row_flush.stop()
@@ -1850,7 +1968,9 @@ class MainWindow(QMainWindow):
             self._row_buffer.clear()
             self._row_flush.stop()
             self._scan_progress = None
-            self.lbl_counts.setText("Files: 0   |   Metadata: 0/0")
+            self._update_counts(0, 0)
+            self._set_preview_status("Ready")
+            self._clear_inspector()
             self._update_ui_state()
             self._fit_columns_initial()
             return
@@ -1896,8 +2016,10 @@ class MainWindow(QMainWindow):
         self._row_buffer.clear()
         self._row_flush.stop()
         self._scan_progress = None
-        self.lbl_counts.setText("Files: 0   |   Metadata: 0/0")
+        self._update_counts(0, 0)
         self.table.setSortingEnabled(False)
+        self._set_preview_status("Scanning…")
+        self._clear_inspector()
 
         self._scan_thread.started.connect(self._scan_worker.run)
         self._scan_worker.row_ready.connect(self._on_scan_row_ready)
@@ -1913,16 +2035,16 @@ class MainWindow(QMainWindow):
         self._scan_thread.start()
         self._update_ui_state()
 
-    def _on_scan_row_ready(self, row_obj: object, processed: int, total: int, meta_ok: int, scan_id: int) -> None:
+    def _on_scan_row_ready(self, row_obj: object, processed: int, total: int, renamable: int, scan_id: int) -> None:
         if scan_id != self._active_scan_id:
             return
         if isinstance(row_obj, PreviewRow):
             self._row_buffer.append(row_obj)
-            self._scan_progress = (processed, total, meta_ok)
+            self._scan_progress = (processed, total, renamable)
             if not self._row_flush.isActive():
                 self._row_flush.start()
 
-    def _on_scan_finished(self, rows: list, total: int, meta_ok: int, exiftool_info: str, scan_id: int) -> None:
+    def _on_scan_finished(self, rows: list, total: int, renamable: int, exiftool_info: str, scan_id: int) -> None:
         if scan_id != self._active_scan_id:
             return
         self._row_buffer.clear()
@@ -1930,14 +2052,18 @@ class MainWindow(QMainWindow):
         rows = list(rows)
         self.model.set_rows(rows)
 
-        self.lbl_counts.setText(f"Files: {total}   |   Metadata: {meta_ok}/{total}")
-        log(f"[scan] files={total} meta={meta_ok} rows={len(rows)}")
+        self._update_counts(renamable, total)
+        log(f"[scan] files={total} renamable={renamable} rows={len(rows)}")
         self.lbl_exiftool_info.setText(f"ExifTool: {exiftool_info}")
 
         self._apply_naming_if_possible(force=True)
 
         self._fit_columns_initial()
         self.table.setSortingEnabled(True)
+        if self._scan_cancel.is_set():
+            self._set_preview_status("Cancelled")
+        else:
+            self._set_preview_status("Ready")
         self._update_ui_state()
 
     def _on_scan_failed(self, msg: str, scan_id: int) -> None:
@@ -1947,6 +2073,7 @@ class MainWindow(QMainWindow):
         self._row_buffer.clear()
         self._row_flush.stop()
         self.table.setSortingEnabled(True)
+        self._set_preview_status("Error")
         QMessageBox.critical(self, "Scan error", msg)
         self._update_ui_state()
 
