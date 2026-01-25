@@ -165,8 +165,6 @@ EXIFTOOL_DATE_TAGS = [
     "QuickTime:TrackCreateDate",
     "QuickTime:ModifyDate",
     "QuickTime:ContentCreateDate",
-    "File:FileModifyDate",
-    "File:FileCreateDate",
     "Composite:SubSecDateTimeOriginal",
     "Composite:DateTimeCreated",
     "PNG:CreationTime",
