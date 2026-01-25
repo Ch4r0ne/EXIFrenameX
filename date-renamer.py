@@ -310,9 +310,9 @@ def parse_takeout_json_for_date(obj: Any) -> Optional[_dt.datetime]:
 # Metadata Reader
 # =========================
 class FallbackMode(str):
-    OFF = "OFF (skip if missing)"
-    FS_CREATED = "File created time"
-    FS_MODIFIED = "File modified time"
+    OFF = "Skip"
+    FS_CREATED = "Use file created time"
+    FS_MODIFIED = "Use file modified time"
 
 
 class ExifToolMode(str):
@@ -798,7 +798,7 @@ class PreviewModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.ForegroundRole:
             if r.status.startswith("ERROR"):
                 return QColor(220, 130, 130)
-            if r.status.startswith("SKIP"):
+            if r.status.startswith("Skipped"):
                 return QColor(170, 170, 170)
             return QColor(235, 235, 235)
         return None
@@ -903,7 +903,7 @@ class ScanWorker(QObject):
 
                 def process_one(idx: int, p: Path) -> Tuple[int, PreviewRow, bool]:
                     if self.cancel.is_set():
-                        row = PreviewRow(p.name, "(cancelled)", None, "cancelled", p, "SKIP (cancelled)")
+                        row = PreviewRow(p.name, "(cancelled)", None, "cancelled", p, "Skipped (cancelled)")
                         return idx, row, False
 
                     md = exif_map.get(_norm(str(p)))
@@ -911,7 +911,7 @@ class ScanWorker(QObject):
 
                     new = format_new_name(dt, p.name, self.fmt, self.prefix, self.suffix, self.pattern)
                     if new is None:
-                        row = PreviewRow(p.name, "(no timestamp)", dt, src, p, "SKIP (missing timestamp)")
+                        row = PreviewRow(p.name, "(no timestamp)", dt, src, p, "Skipped (no timestamp)")
                         return idx, row, False
 
                     row = PreviewRow(p.name, new, dt, src, p, "OK")
@@ -1163,7 +1163,7 @@ def apply_enterprise_dark_theme(app: QApplication) -> None:
             border: 1px solid #2f2f2f;
             border-radius: 10px;
             padding: 6px 10px;
-            min-height: 30px;
+            min-height: 32px;
             color: #F2F2F2;
         }
         QLineEdit:focus, QComboBox:focus, QTextEdit:focus {
@@ -1374,7 +1374,7 @@ class MainWindow(QMainWindow):
         f = QFrame()
         f.setObjectName("Card")
         lay = QVBoxLayout(f)
-        lay.setContentsMargins(16, 14, 16, 14)
+        lay.setContentsMargins(14, 14, 14, 14)
         lay.setSpacing(12)
 
         t = QLabel(title)
@@ -1404,9 +1404,16 @@ class MainWindow(QMainWindow):
 
         title = QLabel(APP_NAME)
         title.setObjectName("H1")
+        subtitle = QLabel("Rename photos & videos by timestamp — offline")
+        subtitle.setObjectName("Hint")
+
+        title_stack = QVBoxLayout()
+        title_stack.setSpacing(2)
+        title_stack.addWidget(title)
+        title_stack.addWidget(subtitle)
 
         brand.addWidget(self.lbl_app_icon)
-        brand.addWidget(title)
+        brand.addLayout(title_stack)
 
         btn_help = QPushButton("Help")
         btn_logs = QPushButton("Logs")
@@ -1454,13 +1461,22 @@ class MainWindow(QMainWindow):
         row_path.addWidget(self.btn_open)
         cf.addLayout(row_path)
 
+        self.cb_recursive = QCheckBox("Include subfolders")
+        self.cb_recursive.setChecked(True)
+        self.cb_recursive.stateChanged.connect(self._trigger_scan)
+        cf.addWidget(self.cb_recursive)
+
         # CLEAN counts: no boxes/pills
         self.lbl_counts = QLabel("Renamable: 0   |   Skipped: 0")
         self.lbl_counts.setObjectName("Hint")
         cf.addWidget(self.lbl_counts)
 
+        self.lbl_trust = QLabel("Offline • No uploads • Safe rename + Undo")
+        self.lbl_trust.setObjectName("Hint")
+        cf.addWidget(self.lbl_trust)
+
         # Naming card
-        self.card_naming = self._card("Naming")
+        self.card_naming = self._card("Rename pattern")
         left.addWidget(self.card_naming)
 
         cn = self.card_naming.layout()
@@ -1473,7 +1489,7 @@ class MainWindow(QMainWindow):
         grid.setColumnStretch(1, 1)
 
         # ORDER requested:
-        # Format -> Prefix -> Suffix -> Pattern -> Fallback -> Include subfolders
+        # Format -> Prefix -> Suffix -> Pattern -> Fallback
         self.cmb_format = QComboBox()
         self.cmb_format.setEditable(True)
         self.cmb_format.addItems([
@@ -1502,10 +1518,6 @@ class MainWindow(QMainWindow):
         self.cmb_fallback.setCurrentText(FallbackMode.OFF)
         self.cmb_fallback.currentIndexChanged.connect(self._trigger_scan)
 
-        self.cb_recursive = QCheckBox("Include subfolders (recursive)")
-        self.cb_recursive.setChecked(True)
-        self.cb_recursive.stateChanged.connect(self._trigger_scan)
-
         r = 0
         grid.addWidget(QLabel("Format"), r, 0)
         grid.addWidget(self.cmb_format, r, 1)
@@ -1519,24 +1531,23 @@ class MainWindow(QMainWindow):
         grid.addWidget(self.ed_suffix, r, 1)
         r += 1
 
-        grid.addWidget(QLabel("Pattern"), r, 0)
+        grid.addWidget(QLabel("Name pattern"), r, 0)
         grid.addWidget(self.cmb_pattern, r, 1)
         r += 1
 
-        grid.addWidget(QLabel("Fallback if missing"), r, 0)
+        grid.addWidget(QLabel("If no timestamp"), r, 0)
         grid.addWidget(self.cmb_fallback, r, 1)
-        r += 1
-
-        grid.addWidget(self.cb_recursive, r, 0, 1, 2)
         r += 1
 
         cn.addLayout(grid)
 
         # Advanced collapsible
         self.btn_adv = QToolButton()
-        self.btn_adv.setText("Advanced analysis")
+        self.btn_adv.setText("Advanced")
         self.btn_adv.setCheckable(True)
         self.btn_adv.setChecked(False)
+        self.btn_adv.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.btn_adv.setArrowType(Qt.ArrowType.RightArrow)
         self.btn_adv.toggled.connect(self._toggle_advanced)
         self.btn_adv.setMinimumHeight(42)
 
@@ -1595,7 +1606,7 @@ class MainWindow(QMainWindow):
         cn.addWidget(self.adv_box)
 
         # Run card (fix: no huge empty, title stays top)
-        self.card_run = self._card("Run")
+        self.card_run = self._card("Actions")
         self.card_run.setMaximumHeight(190)
         left.addWidget(self.card_run)
 
@@ -1766,6 +1777,12 @@ class MainWindow(QMainWindow):
             self.cmb_pattern.setCurrentIndex(i)
 
         fb = self.settings.value("naming/fallback", FallbackMode.OFF, type=str)
+        fallback_map = {
+            "OFF (skip if missing)": FallbackMode.OFF,
+            "File created time": FallbackMode.FS_CREATED,
+            "File modified time": FallbackMode.FS_MODIFIED,
+        }
+        fb = fallback_map.get(fb, fb)
         i = self.cmb_fallback.findText(fb)
         if i >= 0:
             self.cmb_fallback.setCurrentIndex(i)
@@ -1793,6 +1810,7 @@ class MainWindow(QMainWindow):
     # ---------- Actions ----------
     def _toggle_advanced(self, checked: bool) -> None:
         self.adv_box.setVisible(checked)
+        self.btn_adv.setArrowType(Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow)
 
     def _browse_folder(self) -> None:
         start = self.ed_folder.text().strip() or str(Path.home())
@@ -1891,7 +1909,7 @@ class MainWindow(QMainWindow):
 
         for r in self.model.rows:
             # ERROR/CANCEL nicht überschreiben
-            if r.status.startswith("ERROR") or r.status.startswith("SKIP (cancelled)"):
+            if r.status.startswith("ERROR") or r.status.startswith("Skipped (cancelled)"):
                 new_rows.append(r)
                 continue
 
@@ -1907,7 +1925,7 @@ class MainWindow(QMainWindow):
                     r.dt,
                     r.source,
                     r.path,
-                    "SKIP (missing timestamp)",
+                    "Skipped (no timestamp)",
                 ))
                 continue
 
