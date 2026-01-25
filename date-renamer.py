@@ -17,6 +17,7 @@ from PyQt6.QtCore import (
     QModelIndex,
     QObject,
     QSettings,
+    QSize,
     Qt,
     QSortFilterProxyModel,
     QThread,
@@ -1104,7 +1105,7 @@ class CheckStyle(QProxyStyle):
             painter.drawRoundedRect(rect, 6, 6)
 
             if checked:
-                pen = QPen(QColor("#111111"), 2.2)
+                pen = QPen(QColor("#F2F2F2"), 2.2)
                 pen.setCapStyle(Qt.PenCapStyle.RoundCap)
                 pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
                 painter.setPen(pen)
@@ -1291,6 +1292,21 @@ def apply_enterprise_dark_theme(app: QApplication) -> None:
         QScrollBar::handle:horizontal:hover { background: #4a4a4a; }
         QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal { width: 0px; }
         QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal { background: transparent; }
+
+        /* Advanced toggle (link-like, consistent, white) */
+        QToolButton#AdvancedToggle {
+            background: transparent;
+            border: 0px;
+            padding: 0px;
+            color: #F2F2F2;
+            font-weight: 800;
+        }
+        QToolButton#AdvancedToggle:hover {
+            color: #cfa9ff;
+        }
+        QToolButton#AdvancedToggle:checked {
+            color: #F2F2F2;
+        }
     """
     app.setStyleSheet(stylesheet)
 
@@ -1344,6 +1360,7 @@ class MainWindow(QMainWindow):
         self._undo_cancel = threading.Event()
 
         self._undo_pairs: List[Tuple[Path, Path]] = []
+        self._size_before_advanced: Optional[QSize] = None
 
         self.model = PreviewModel()
         self.proxy = PreviewFilter()
@@ -1507,6 +1524,7 @@ class MainWindow(QMainWindow):
         self.btn_adv.setAutoRaise(True)
         self.btn_adv.toggled.connect(self._toggle_advanced)
         self.btn_adv.setProperty("variant", "link")
+        self.btn_adv.setObjectName("AdvancedToggle")
         header_row.addWidget(self.btn_adv)
         cn.addLayout(header_row)
 
@@ -1825,8 +1843,26 @@ class MainWindow(QMainWindow):
 
     # ---------- Actions ----------
     def _toggle_advanced(self, checked: bool) -> None:
-        self.adv_box.setVisible(checked)
+        if checked:
+            self._size_before_advanced = self.size()
+            self.adv_box.setVisible(True)
+        else:
+            self.adv_box.setVisible(False)
+
+            if self._size_before_advanced is not None:
+                prev = self._size_before_advanced
+                self._size_before_advanced = None
+                layout = self.centralWidget().layout()
+                if layout:
+                    layout.activate()
+                self.updateGeometry()
+                QTimer.singleShot(0, lambda p=prev: self.resize(p))
+
         self.btn_adv.setArrowType(Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow)
+        layout = self.centralWidget().layout()
+        if layout:
+            layout.activate()
+        self.updateGeometry()
 
     def _browse_folder(self) -> None:
         start = self.ed_folder.text().strip() or str(Path.home())
