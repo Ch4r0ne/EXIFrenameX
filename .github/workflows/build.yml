@@ -142,7 +142,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          pyinstaller --noconfirm --clean date-renamer-toolkit.spec
+          pyinstaller --noconfirm --clean date-renamer.spec
 
       # Upload ONLY the single output
       - name: Upload artifact (Windows exe)
