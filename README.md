@@ -1,14 +1,12 @@
-![Date Renamer icon](assets/DateRenamer.png)
+[![Release](https://img.shields.io/github/v/release/Ch4r0ne/date-renamer)](https://github.com/Ch4r0ne/date-renamer/releases)
+[![License](https://img.shields.io/github/license/Ch4r0ne/date-renamer)](LICENSE)
+![Platforms](https://img.shields.io/badge/platform-windows%20%7C%20macOS-blue)
 
-# Date Renamer
+# Date Renamer 
 
 Renames photos and videos based on the best available capture timestamp.
 
 > Deterministic timestamp resolution with explicit source visibility in the preview.
-
-[![Release](https://img.shields.io/github/v/release/Ch4r0ne/date-renamer)](https://github.com/Ch4r0ne/date-renamer/releases)
-[![License](https://img.shields.io/github/license/Ch4r0ne/date-renamer)](LICENSE)
-![Platforms](https://img.shields.io/badge/platform-windows%20%7C%20macOS-blue)
 
 ![Date Renamer preview](preview/date-renamer.png)
 
@@ -21,30 +19,6 @@ Preview of the current UI and timestamp source visibility.
 1. Download the latest release from the GitHub Releases page.
 2. Start the app (Windows: `.exe`, macOS: `.app`).
 3. No Python installation is required for the release builds.
-
-### Run from source
-
-```bash
-python -m venv .venv
-```
-
-```bash
-# Windows
-.venv\Scripts\activate
-```
-
-```bash
-# macOS/Linux
-source .venv/bin/activate
-```
-
-```bash
-pip install -r requirements.txt
-```
-
-```bash
-python date-renamer.py
-```
 
 ## Features
 
@@ -128,6 +102,31 @@ UUID-style filenames often indicate exported or transcoded media. Without a
 sidecar or intact metadata, only filesystem fallback is available, which usually
 reflects import or download time rather than capture time.
 
+### Run from source
+
+```bash
+python -m venv .venv
+```
+
+```bash
+# Windows
+.venv\Scripts\activate
+```
+
+```bash
+# macOS/Linux
+source .venv/bin/activate
+```
+
+```bash
+pip install -r requirements.txt
+```
+
+```bash
+python date-renamer.py
+```
+
+
 ## Troubleshooting
 
 1. Open Logs from the app menu.
@@ -166,10 +165,6 @@ Output is written to `dist/DateRenamer`.
 Bundled assets are taken from `assets/` and `tools/` (if present).
 ExifTool resolution order is bundled first, then system PATH.
 
-## License
-
-[MIT License](LICENSE)
-
 ## Credits
 
 - Built with PyQt6 and community-maintained Python packages.
@@ -178,3 +173,8 @@ ExifTool resolution order is bundled first, then system PATH.
 
 Open an issue at https://github.com/Ch4r0ne/date-renamer/issues with logs and a sample
 file list if you need help reproducing a timestamp issue.
+
+
+## License
+
+[MIT License](LICENSE)
