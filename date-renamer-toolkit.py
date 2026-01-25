@@ -91,6 +91,7 @@ APP_NAME = "Date Renamer Toolkit"
 APP_ORG = "TimTools"
 APP_SETTINGS = "DateRenamerToolkit"
 APP_SETTINGS_OLD = "EXIFrenameX_Final"
+USE_NATIVE_SCROLLBARS = True
 
 
 # =========================
@@ -1102,7 +1103,7 @@ class CheckStyle(QProxyStyle):
         super().drawPrimitive(element, option, painter, widget)
 
 
-def apply_chatgpt_dark(app: QApplication) -> None:
+def apply_enterprise_dark_theme(app: QApplication) -> None:
     pal = QPalette()
     pal.setColor(QPalette.ColorRole.Window, QColor("#1f1f1f"))
     pal.setColor(QPalette.ColorRole.WindowText, QColor("#eaeaea"))
@@ -1116,8 +1117,7 @@ def apply_chatgpt_dark(app: QApplication) -> None:
     app.setPalette(pal)
 
     # IMPORTANT: we do NOT style checkbox indicator here (custom style draws it)
-    app.setStyleSheet(
-        """
+    stylesheet = """
         * { font-size: 10pt; }
         QWidget { color: #eaeaea; background: transparent; }
         QMainWindow { background: #1f1f1f; }
@@ -1137,6 +1137,14 @@ def apply_chatgpt_dark(app: QApplication) -> None:
             border-radius: 12px;
             padding: 10px 12px;
         }
+        QLineEdit:focus, QComboBox:focus, QTextEdit:focus {
+            border: 1px solid #cfa9ff;
+        }
+        QLineEdit:disabled, QComboBox:disabled, QTextEdit:disabled {
+            color: #9a9a9a;
+            background: #1a1a1a;
+            border: 1px solid #262626;
+        }
         QComboBox::drop-down { border: 0px; width: 30px; }
         QComboBox QAbstractItemView {
             background: #1b1b1b;
@@ -1155,6 +1163,7 @@ def apply_chatgpt_dark(app: QApplication) -> None:
         QPushButton:hover { background: #2b2b2b; border: 1px solid #3a3a3a; }
         QPushButton:pressed { background: #222222; }
         QPushButton:disabled { color: #8c8c8c; background: #222222; border: 1px solid #262626; }
+        QPushButton:focus { border: 1px solid #cfa9ff; }
 
         QPushButton[primary="true"] {
             background: #f3f3f3;
@@ -1212,6 +1221,9 @@ def apply_chatgpt_dark(app: QApplication) -> None:
             text-align: left;
         }
         QTableView::item { padding: 8px 10px; }
+    """
+    if not USE_NATIVE_SCROLLBARS:
+        stylesheet += """
         QScrollBar:vertical {
             background: transparent;
             width: 12px;
@@ -1225,7 +1237,7 @@ def apply_chatgpt_dark(app: QApplication) -> None:
         QScrollBar::handle:vertical:hover { background: #4a4a4a; }
         QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0px; }
         """
-    )
+    app.setStyleSheet(stylesheet)
 
 
 class LogsDialog(QDialog):
@@ -1958,11 +1970,13 @@ def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setWindowIcon(QIcon(app_icon_path()))
+    if sys.platform.startswith("win"):
+        app.setFont(QFont("Segoe UI", 10))
 
     # Apply checkbox style with visible checkmark ✓
     app.setStyle(CheckStyle(app.style()))
 
-    apply_chatgpt_dark(app)
+    apply_enterprise_dark_theme(app)
 
     w = MainWindow()
     w.show()
