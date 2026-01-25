@@ -747,6 +747,15 @@ class PreviewModel(QAbstractTableModel):
         self.rows.append(row)
         self.endInsertRows()
 
+    def append_rows(self, rows: List[PreviewRow]) -> None:
+        if not rows:
+            return
+        start = len(self.rows)
+        end = start + len(rows) - 1
+        self.beginInsertRows(QModelIndex(), start, end)
+        self.rows.extend(rows)
+        self.endInsertRows()
+
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
         return 0 if parent.isValid() else len(self.rows)
 
@@ -854,7 +863,7 @@ class ScanWorker(QObject):
     def run(self) -> None:
         try:
             if not self.folder.exists() or not self.folder.is_dir():
-                self.failed.emit("Folder does not exist.")
+                self.failed.emit("Folder does not exist.", self.scan_id)
                 return
 
             files = list(self._iter_files())
@@ -1277,6 +1286,9 @@ class MainWindow(QMainWindow):
         self._active_scan_id = 0
         self._scan_restart_requested = False
 
+        self._row_buffer: List[PreviewRow] = []
+        self._scan_progress: Optional[Tuple[int, int, int]] = None
+
         self._rename_thread: Optional[QThread] = None
         self._rename_worker: Optional[RenameWorker] = None
         self._rename_cancel = threading.Event()
@@ -1287,17 +1299,30 @@ class MainWindow(QMainWindow):
         self.proxy = PreviewFilter()
         self.proxy.setSourceModel(self.model)
 
-        self._debounce = QTimer(self)
-        self._debounce.setSingleShot(True)
-        self._debounce.setInterval(350)
-        self._debounce.timeout.connect(self._start_scan_if_possible)
+        # --- Debounces: scan vs naming ---
+        self._scan_debounce = QTimer(self)
+        self._scan_debounce.setSingleShot(True)
+        self._scan_debounce.setInterval(350)
+        self._scan_debounce.timeout.connect(self._start_scan_if_possible)
+
+        self._naming_debounce = QTimer(self)
+        self._naming_debounce.setSingleShot(True)
+        self._naming_debounce.setInterval(250)
+        self._naming_debounce.timeout.connect(self._apply_naming_if_possible)
+
+        self._naming_dirty = False
+        self._pending_naming_apply = False
+
+        self._row_flush = QTimer(self)
+        self._row_flush.setInterval(50)
+        self._row_flush.timeout.connect(self._flush_row_buffer)
 
         self._build_ui()
         self._load_settings()
         self._update_ui_state(initial=True)
 
         QTimer.singleShot(0, self._fit_columns_initial)
-        self._debounce.start()
+        self._scan_debounce.start()
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -1359,7 +1384,7 @@ class MainWindow(QMainWindow):
         row_path = QHBoxLayout()
         self.ed_folder = QLineEdit()
         self.ed_folder.setPlaceholderText("Select a folder…")
-        self.ed_folder.textChanged.connect(lambda: self._debounce.start())
+        self.ed_folder.textChanged.connect(self._trigger_scan)
 
         self.btn_browse = QPushButton("Browse")
         self.btn_open = QPushButton("Open")
@@ -1399,29 +1424,29 @@ class MainWindow(QMainWindow):
             "%d-%m-%Y_%Hh%Mm%Ss",
         ])
         self.cmb_format.setCurrentText("%Y-%m-%d_%H-%M-%S")
-        self.cmb_format.currentTextChanged.connect(lambda: self._debounce.start())
+        self.cmb_format.currentTextChanged.connect(self._trigger_naming)
 
         self.ed_prefix = QLineEdit()
         self.ed_prefix.setPlaceholderText("Prefix (optional)")
-        self.ed_prefix.textChanged.connect(lambda: self._debounce.start())
+        self.ed_prefix.textChanged.connect(self._trigger_naming)
 
         self.ed_suffix = QLineEdit()
         self.ed_suffix.setPlaceholderText("Suffix (optional)")
-        self.ed_suffix.textChanged.connect(lambda: self._debounce.start())
+        self.ed_suffix.textChanged.connect(self._trigger_naming)
 
         self.cmb_pattern = QComboBox()
         self.cmb_pattern.addItems([PatternMode.DATE_ONLY, PatternMode.DATE_ORIG, PatternMode.ORIG_ONLY, PatternMode.ORIG_DATE])
         self.cmb_pattern.setCurrentText(PatternMode.DATE_ONLY)
-        self.cmb_pattern.currentIndexChanged.connect(lambda: self._debounce.start())
+        self.cmb_pattern.currentIndexChanged.connect(self._trigger_naming)
 
         self.cmb_fallback = QComboBox()
         self.cmb_fallback.addItems([FallbackMode.OFF, FallbackMode.FS_CREATED, FallbackMode.FS_MODIFIED])
         self.cmb_fallback.setCurrentText(FallbackMode.OFF)
-        self.cmb_fallback.currentIndexChanged.connect(lambda: self._debounce.start())
+        self.cmb_fallback.currentIndexChanged.connect(self._trigger_scan)
 
         self.cb_recursive = QCheckBox("Include subfolders (recursive)")
         self.cb_recursive.setChecked(True)
-        self.cb_recursive.stateChanged.connect(lambda: self._debounce.start())
+        self.cb_recursive.stateChanged.connect(self._trigger_scan)
 
         r = 0
         grid.addWidget(QLabel("Format"), r, 0)
@@ -1468,7 +1493,7 @@ class MainWindow(QMainWindow):
         self.cmb_exiftool = QComboBox()
         self.cmb_exiftool.addItems([ExifToolMode.AUTO, ExifToolMode.BUNDLED, ExifToolMode.SYSTEM, ExifToolMode.OFF])
         self.cmb_exiftool.setCurrentText(ExifToolMode.AUTO)
-        self.cmb_exiftool.currentIndexChanged.connect(lambda: self._debounce.start())
+        self.cmb_exiftool.currentIndexChanged.connect(self._trigger_scan)
         row.addWidget(self.cmb_exiftool, 1)
         adv_l.addLayout(row)
 
@@ -1478,23 +1503,23 @@ class MainWindow(QMainWindow):
 
         self.cb_deep_xmp = QCheckBox("Deep: read .xmp sidecar if present")
         self.cb_deep_xmp.setChecked(True)
-        self.cb_deep_xmp.stateChanged.connect(lambda: self._debounce.start())
+        self.cb_deep_xmp.stateChanged.connect(self._trigger_scan)
 
         self.cb_deep_takeout = QCheckBox("Deep: read Google Takeout .json sidecar")
         self.cb_deep_takeout.setChecked(True)
-        self.cb_deep_takeout.stateChanged.connect(lambda: self._debounce.start())
+        self.cb_deep_takeout.stateChanged.connect(self._trigger_scan)
 
         adv_l.addWidget(self.cb_deep_xmp)
         adv_l.addWidget(self.cb_deep_takeout)
 
         self.cb_filename_date = QCheckBox("Deep: use filename date when metadata is missing")
         self.cb_filename_date.setChecked(False)
-        self.cb_filename_date.stateChanged.connect(lambda: self._debounce.start())
+        self.cb_filename_date.stateChanged.connect(self._trigger_scan)
         adv_l.addWidget(self.cb_filename_date)
 
         self.cb_parallel_scan = QCheckBox("Performance: parallel scan (recommended)")
         self.cb_parallel_scan.setChecked(True)
-        self.cb_parallel_scan.stateChanged.connect(lambda: self._debounce.start())
+        self.cb_parallel_scan.stateChanged.connect(self._trigger_scan)
         adv_l.addWidget(self.cb_parallel_scan)
 
         rowp = QHBoxLayout()
@@ -1502,7 +1527,7 @@ class MainWindow(QMainWindow):
         self.cmb_parallel_workers = QComboBox()
         self.cmb_parallel_workers.addItems(["Auto", "4", "6", "8", "12", "16"])
         self.cmb_parallel_workers.setCurrentText("Auto")
-        self.cmb_parallel_workers.currentIndexChanged.connect(lambda: self._debounce.start())
+        self.cmb_parallel_workers.currentIndexChanged.connect(self._trigger_scan)
         rowp.addWidget(self.cmb_parallel_workers, 1)
         adv_l.addLayout(rowp)
 
@@ -1670,6 +1695,15 @@ class MainWindow(QMainWindow):
     def _show_logs(self) -> None:
         LogsDialog(self).exec()
 
+    def _trigger_scan(self) -> None:
+        # Scan ist teuer → nur wenn nötig
+        self._scan_debounce.start()
+
+    def _trigger_naming(self) -> None:
+        # Naming ist billig → nur Preview neu rechnen
+        self._naming_dirty = True
+        self._naming_debounce.start()
+
     def _stop_all(self) -> None:
         self._scan_restart_requested = False
         if self._scan_thread is not None:
@@ -1701,6 +1735,76 @@ class MainWindow(QMainWindow):
         opts = ReadOptions(deep=deep, fallback=self.cmb_fallback.currentText())
         return MetadataReader(opts)
 
+    def _apply_naming_if_possible(self, force: bool = False) -> None:
+        if not force and not self._naming_dirty:
+            return
+
+        # Während Scan läuft: nicht ständig ResetModel + Inserts fighten.
+        # Wir merken uns nur: "nach Scan fertig anwenden".
+        if self._scan_thread is not None and not force:
+            self._pending_naming_apply = True
+            return
+
+        self._naming_dirty = False
+        self._pending_naming_apply = False
+
+        if not self.model.rows:
+            self._update_ui_state()
+            return
+
+        fmt = self.cmb_format.currentText().strip() or "%Y-%m-%d_%H-%M-%S"
+        prefix = self.ed_prefix.text()
+        suffix = self.ed_suffix.text()
+        pattern = self.cmb_pattern.currentText()
+
+        used: Dict[Path, set[str]] = {}
+        new_rows: List[PreviewRow] = []
+
+        for r in self.model.rows:
+            # ERROR/CANCEL nicht überschreiben
+            if r.status.startswith("ERROR") or r.status.startswith("SKIP (cancelled)"):
+                new_rows.append(r)
+                continue
+
+            folder = r.path.parent
+            if folder not in used:
+                used[folder] = set()
+
+            new_name = format_new_name(r.dt, r.old_name, fmt, prefix, suffix, pattern)
+            if new_name is None:
+                new_rows.append(PreviewRow(
+                    r.old_name,
+                    "(no timestamp)",
+                    r.dt,
+                    r.source,
+                    r.path,
+                    "SKIP (missing timestamp)",
+                ))
+                continue
+
+            uniq = unique_name_in_folder(folder, new_name, used[folder])
+            new_rows.append(PreviewRow(r.old_name, uniq, r.dt, r.source, r.path, "OK"))
+
+        self.model.set_rows(new_rows)
+        self._fit_columns_initial()
+        self._update_ui_state()
+
+    def _flush_row_buffer(self) -> None:
+        if not self._row_buffer:
+            self._row_flush.stop()
+            return
+
+        batch = self._row_buffer[:200]
+        del self._row_buffer[:200]
+        self.model.append_rows(batch)
+
+        if self._scan_progress:
+            processed, total, meta_ok = self._scan_progress
+            self.lbl_counts.setText(f"Files: {processed}/{total}   |   Metadata: {meta_ok}/{processed}")
+
+        if not self._row_buffer:
+            self._row_flush.stop()
+
     def _start_scan_if_possible(self) -> None:
         self._save_settings()
 
@@ -1711,6 +1815,9 @@ class MainWindow(QMainWindow):
         folder = Path(folder_txt) if folder_txt else None
         if folder is None or not folder.exists() or not folder.is_dir():
             self.model.clear()
+            self._row_buffer.clear()
+            self._row_flush.stop()
+            self._scan_progress = None
             self.lbl_counts.setText("Files: 0   |   Metadata: 0/0")
             self._update_ui_state()
             self._fit_columns_initial()
@@ -1754,7 +1861,11 @@ class MainWindow(QMainWindow):
         self._scan_worker.moveToThread(self._scan_thread)
 
         self.model.clear()
+        self._row_buffer.clear()
+        self._row_flush.stop()
+        self._scan_progress = None
         self.lbl_counts.setText("Files: 0   |   Metadata: 0/0")
+        self.table.setSortingEnabled(False)
 
         self._scan_thread.started.connect(self._scan_worker.run)
         self._scan_worker.row_ready.connect(self._on_scan_row_ready)
@@ -1774,12 +1885,16 @@ class MainWindow(QMainWindow):
         if scan_id != self._active_scan_id:
             return
         if isinstance(row_obj, PreviewRow):
-            self.model.append_row(row_obj)
-            self.lbl_counts.setText(f"Files: {processed}/{total}   |   Metadata: {meta_ok}/{processed}")
+            self._row_buffer.append(row_obj)
+            self._scan_progress = (processed, total, meta_ok)
+            if not self._row_flush.isActive():
+                self._row_flush.start()
 
     def _on_scan_finished(self, rows: list, total: int, meta_ok: int, exiftool_info: str, scan_id: int) -> None:
         if scan_id != self._active_scan_id:
             return
+        self._row_buffer.clear()
+        self._row_flush.stop()
         rows = list(rows)
         self.model.set_rows(rows)
 
@@ -1787,13 +1902,19 @@ class MainWindow(QMainWindow):
         log(f"[scan] files={total} meta={meta_ok} rows={len(rows)}")
         self.lbl_exiftool_info.setText(f"ExifTool: {exiftool_info}")
 
+        self._apply_naming_if_possible(force=True)
+
         self._fit_columns_initial()
+        self.table.setSortingEnabled(True)
         self._update_ui_state()
 
     def _on_scan_failed(self, msg: str, scan_id: int) -> None:
         if scan_id != self._active_scan_id:
             return
         log(f"[scan] ERROR {msg}")
+        self._row_buffer.clear()
+        self._row_flush.stop()
+        self.table.setSortingEnabled(True)
         QMessageBox.critical(self, "Scan error", msg)
         self._update_ui_state()
 
@@ -1867,7 +1988,7 @@ class MainWindow(QMainWindow):
         log(f"[rename] renamed={result_obj.renamed} skipped={result_obj.skipped} errors={result_obj.errors}")
 
         # refresh preview
-        self._debounce.start()
+        self._trigger_scan()
         self._update_ui_state()
 
     def _on_rename_failed(self, msg: str) -> None:
@@ -1910,7 +2031,7 @@ class MainWindow(QMainWindow):
             else:
                 QMessageBox.information(self, "Undo", f"Undone: {undone}")
             self._undo_pairs = []
-            self._debounce.start()
+            self._trigger_scan()
             self._update_ui_state()
 
         def fail(msg: str) -> None:
