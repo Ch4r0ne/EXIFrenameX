@@ -11,6 +11,7 @@ concurrency:
 
 env:
   EXIFTOOL_VER: "13.45"
+  EXIFTOOL_DIR: "tools/exiftool"
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
   PIP_NO_PYTHON_VERSION_WARNING: "1"
   PYTHONUNBUFFERED: "1"
@@ -43,6 +44,10 @@ jobs:
           test -f date-renamer-toolkit.py
           test -d assets
 
+          # Branding assets must exist (at least one per OS)
+          test -f assets/DateRenamerToolkit.ico || true
+          test -f assets/DateRenamerToolkit.icns || true
+
       - name: Install deps (pinned toolchain)
         shell: bash
         run: |
@@ -50,14 +55,17 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install "pyinstaller==6.18.0" "pyinstaller-hooks-contrib==2026.0"
 
-      # ---- ExifTool Windows
+      # --------------------
+      # ExifTool (Windows)
+      # --------------------
       - name: Fetch ExifTool (Windows 64-bit)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $ver  = "${{ env.EXIFTOOL_VER }}"
-          $dest = "assets\exiftool\windows"
+          $dest = "${{ env.EXIFTOOL_DIR }}"
+
           if (Test-Path $dest) { Remove-Item $dest -Recurse -Force }
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
 
@@ -70,31 +78,38 @@ jobs:
             throw "Downloaded file is not a ZIP (missing PK header)."
           }
 
+          $extract = Join-Path $env:TEMP "exiftool_extracted"
+          if (Test-Path $extract) { Remove-Item $extract -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $extract | Out-Null
+
           Add-Type -AssemblyName System.IO.Compression.FileSystem
-          [System.IO.Compression.ZipFile]::ExtractToDirectory($zip, $dest, $true)
+          [System.IO.Compression.ZipFile]::ExtractToDirectory($zip, $extract, $true)
 
-          $top = Get-ChildItem $dest -Directory | Where-Object { $_.Name -like "exiftool-*_64" } | Select-Object -First 1
-          if ($top) {
-            Copy-Item -Path (Join-Path $top.FullName "*") -Destination $dest -Recurse -Force
-            Remove-Item $top.FullName -Recurse -Force
-          }
+          $top = Get-ChildItem $extract -Directory | Where-Object { $_.Name -like "exiftool-*_64" } | Select-Object -First 1
+          if (-not $top) { throw "Top folder exiftool-*_64 not found in ZIP" }
 
-          $kexe = Get-ChildItem $dest -File -Recurse | Where-Object { $_.Name -ieq "exiftool(-k).exe" } | Select-Object -First 1
+          $kexe = Get-ChildItem $top.FullName -File -Recurse | Where-Object { $_.Name -ieq "exiftool(-k).exe" } | Select-Object -First 1
           if (-not $kexe) { throw "exiftool(-k).exe not found" }
+
           Copy-Item $kexe.FullName (Join-Path $dest "exiftool.exe") -Force
 
-          if (-not (Test-Path (Join-Path $dest "exiftool_files"))) {
-            throw "exiftool_files missing"
-          }
+          $filesDir = Join-Path $top.FullName "exiftool_files"
+          if (-not (Test-Path $filesDir)) { throw "exiftool_files missing" }
+          Copy-Item $filesDir (Join-Path $dest "exiftool_files") -Recurse -Force
 
-      # ---- ExifTool macOS
+          # quick verify
+          & (Join-Path $dest "exiftool.exe") -ver
+
+      # --------------------
+      # ExifTool (macOS)
+      # --------------------
       - name: Fetch ExifTool (macOS full distribution)
         if: runner.os == 'macOS'
         shell: bash
         run: |
           set -euo pipefail
           ver="${EXIFTOOL_VER}"
-          dest="assets/exiftool/macos"
+          dest="${EXIFTOOL_DIR}"
           rm -rf "$dest"
           mkdir -p "$dest"
 
@@ -108,9 +123,14 @@ jobs:
           cp -R "$subdir/"* "$dest/"
           rm -rf "$subdir"
 
-          # kill test-suite (important)
+          # remove test-suite (important for PyInstaller + size)
           rm -rf "$dest/t"
+
+          # make executable (build-time)
           chmod +x "$dest/exiftool" || true
+
+          # verify (uses system perl)
+          perl "$dest/exiftool" -ver
 
       - name: Clean build output
         shell: bash
