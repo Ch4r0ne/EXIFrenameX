@@ -32,6 +32,7 @@ from PyQt6.QtGui import (
     QPainter,
     QPalette,
     QPen,
+    QPixmap,
 )
 from PyQt6.QtWidgets import (
     QApplication,
@@ -89,7 +90,7 @@ except Exception:
     ExifToolWrapper = None
 
 
-APP_NAME = "Date Renamer Toolkit"
+APP_NAME = "Date Renamer"
 APP_ORG = "TimTools"
 APP_SETTINGS = "DateRenamerToolkit"
 APP_SETTINGS_OLD = "EXIFrenameX_Final"
@@ -109,16 +110,26 @@ def resource_path(relative: str) -> str:
 def app_icon_path() -> str:
     # New branding first
     if sys.platform.startswith("win"):
-        cand = resource_path("assets/DateRenamerToolkit.ico")
+        cand = resource_path("assets/DateRenamer.ico")
         fallback = resource_path("assets/EXIFrenameX.ico")
     elif sys.platform == "darwin":
-        cand = resource_path("assets/DateRenamerToolkit.icns")
+        cand = resource_path("assets/DateRenamer.icns")
         fallback = resource_path("assets/EXIFrenameX.icns")
     else:
-        cand = resource_path("assets/DateRenamerToolkit.ico")
+        cand = resource_path("assets/DateRenamer.ico")
         fallback = resource_path("assets/EXIFrenameX.ico")
 
     return cand if Path(cand).exists() else fallback
+
+
+def app_mark_path() -> str:
+    preferred = resource_path("assets/appmark.png")
+    if Path(preferred).exists():
+        return preferred
+    fallback_png = resource_path("assets/DateRenamer.png")
+    if Path(fallback_png).exists():
+        return fallback_png
+    return app_icon_path()
 
 
 # =========================
@@ -1130,7 +1141,7 @@ def apply_enterprise_dark_theme(app: QApplication) -> None:
 
     # IMPORTANT: we do NOT style checkbox indicator here (custom style draws it)
     stylesheet = """
-        * { font-size: 10.5pt; }
+        * { font-size: 10pt; }
         QWidget { color: #F2F2F2; background: transparent; }
         QMainWindow { background: #1f1f1f; }
 
@@ -1150,9 +1161,9 @@ def apply_enterprise_dark_theme(app: QApplication) -> None:
         QLineEdit, QComboBox, QTextEdit {
             background: #1b1b1b;
             border: 1px solid #2f2f2f;
-            border-radius: 12px;
-            padding: 8px 12px;
-            min-height: 36px;
+            border-radius: 10px;
+            padding: 6px 10px;
+            min-height: 30px;
             color: #F2F2F2;
         }
         QLineEdit:focus, QComboBox:focus, QTextEdit:focus {
@@ -1163,7 +1174,7 @@ def apply_enterprise_dark_theme(app: QApplication) -> None:
             background: #1a1a1a;
             border: 1px solid #262626;
         }
-        QComboBox::drop-down { border: 0px; width: 28px; }
+        QComboBox::drop-down { border: 0px; width: 24px; }
         QComboBox QAbstractItemView {
             background: #1b1b1b;
             border: 1px solid #2f2f2f;
@@ -1380,15 +1391,29 @@ class MainWindow(QMainWindow):
 
         # Top bar
         top = QHBoxLayout()
+
+        brand = QHBoxLayout()
+        brand.setSpacing(12)
+
+        self.lbl_app_icon = QLabel()
+        pm = QPixmap(app_mark_path())
+        if not pm.isNull():
+            pm = pm.scaled(44, 44, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        self.lbl_app_icon.setPixmap(pm)
+        self.lbl_app_icon.setFixedSize(44, 44)
+
         title = QLabel(APP_NAME)
         title.setObjectName("H1")
+
+        brand.addWidget(self.lbl_app_icon)
+        brand.addWidget(title)
 
         btn_help = QPushButton("Help")
         btn_logs = QPushButton("Logs")
         btn_help.clicked.connect(self._show_help)
         btn_logs.clicked.connect(self._show_logs)
 
-        top.addWidget(title)
+        top.addLayout(brand)
         top.addStretch(1)
         top.addWidget(btn_help)
         top.addWidget(btn_logs)
@@ -1442,8 +1467,8 @@ class MainWindow(QMainWindow):
         assert isinstance(cn, QVBoxLayout)
 
         grid = QGridLayout()
-        grid.setHorizontalSpacing(10)
-        grid.setVerticalSpacing(10)
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(8)
         grid.setColumnStretch(0, 0)
         grid.setColumnStretch(1, 1)
 
@@ -1651,6 +1676,8 @@ class MainWindow(QMainWindow):
         self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.table.setHorizontalScrollMode(QTableView.ScrollMode.ScrollPerPixel)
         self.table.setVerticalScrollMode(QTableView.ScrollMode.ScrollPerPixel)
+        self.table.setMouseTracking(True)
+        self.table.setToolTipDuration(0)
 
         hdr = self.table.horizontalHeader()
         hdr.setStretchLastSection(False)
@@ -1660,39 +1687,8 @@ class MainWindow(QMainWindow):
 
         self.table.setShowGrid(False)
         self.table.verticalHeader().setDefaultSectionSize(30)
-        self.table.selectionModel().currentChanged.connect(self._on_current_changed)
 
         cp.addWidget(self.table, 1)
-
-        self.inspector_panel = QFrame()
-        self.inspector_panel.setObjectName("InspectorPanel")
-        inspector_layout = QGridLayout(self.inspector_panel)
-        inspector_layout.setContentsMargins(12, 10, 12, 10)
-        inspector_layout.setHorizontalSpacing(10)
-        inspector_layout.setVerticalSpacing(6)
-
-        inspector_layout.addWidget(QLabel("Path"), 0, 0, Qt.AlignmentFlag.AlignTop)
-        self.lbl_inspector_path = QLabel("-")
-        self.lbl_inspector_path.setWordWrap(True)
-        self.lbl_inspector_path.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        inspector_layout.addWidget(self.lbl_inspector_path, 0, 1)
-
-        inspector_layout.addWidget(QLabel("Timestamp"), 1, 0)
-        self.lbl_inspector_timestamp = QLabel("-")
-        self.lbl_inspector_timestamp.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        inspector_layout.addWidget(self.lbl_inspector_timestamp, 1, 1)
-
-        inspector_layout.addWidget(QLabel("Source"), 2, 0)
-        self.lbl_inspector_source = QLabel("-")
-        self.lbl_inspector_source.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        inspector_layout.addWidget(self.lbl_inspector_source, 2, 1)
-
-        inspector_layout.addWidget(QLabel("Status"), 3, 0)
-        self.lbl_inspector_status = QLabel("-")
-        self.lbl_inspector_status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        inspector_layout.addWidget(self.lbl_inspector_status, 3, 1)
-
-        cp.addWidget(self.inspector_panel)
 
         # --- Button variants (marketing clean) ---
         btn_help.setProperty("variant", "secondary")
@@ -1707,7 +1703,7 @@ class MainWindow(QMainWindow):
         for b in (btn_help, btn_logs, self.btn_browse, self.btn_open, self.btn_action, self.btn_undo):
             b.setIcon(QIcon())
 
-        self._clear_inspector()
+        self.lbl_app_icon.setObjectName("AppIcon")
 
     def _set_preview_status(self, text: str, processed: int = 0, total: int = 0) -> None:
         self.lbl_preview_status.setText(text)
@@ -1728,29 +1724,6 @@ class MainWindow(QMainWindow):
         total = len(rows)
         renamable = sum(1 for r in rows if r.status == "OK")
         self._update_counts(renamable, total)
-
-    def _clear_inspector(self) -> None:
-        self.lbl_inspector_path.setText("Select a row to see details.")
-        self.lbl_inspector_timestamp.setText("-")
-        self.lbl_inspector_source.setText("-")
-        self.lbl_inspector_status.setText("-")
-
-    def _on_current_changed(self, current: QModelIndex, previous: QModelIndex) -> None:
-        if not current.isValid():
-            self._clear_inspector()
-            return
-
-        src_idx = self.proxy.mapToSource(current)
-        if not src_idx.isValid() or src_idx.row() >= len(self.model.rows):
-            self._clear_inspector()
-            return
-
-        row = self.model.rows[src_idx.row()]
-        dt = row.dt.isoformat(sep=" ") if row.dt else "-"
-        self.lbl_inspector_path.setText(str(row.path))
-        self.lbl_inspector_timestamp.setText(dt)
-        self.lbl_inspector_source.setText(row.source or "-")
-        self.lbl_inspector_status.setText(row.status or "-")
 
     def _fit_columns_initial(self) -> None:
         # Split clean 50/50 on start and after resizes
@@ -1905,7 +1878,6 @@ class MainWindow(QMainWindow):
 
         if not self.model.rows:
             self._update_counts(0, 0)
-            self._clear_inspector()
             self._update_ui_state()
             return
 
@@ -1944,7 +1916,6 @@ class MainWindow(QMainWindow):
 
         self.model.set_rows(new_rows)
         self._fit_columns_initial()
-        self._clear_inspector()
         self._update_counts_from_rows(self.model.rows)
         self._update_ui_state()
 
@@ -1980,7 +1951,6 @@ class MainWindow(QMainWindow):
             self._scan_progress = None
             self._update_counts(0, 0)
             self._set_preview_status("Ready")
-            self._clear_inspector()
             self._update_ui_state()
             self._fit_columns_initial()
             return
@@ -2029,7 +1999,6 @@ class MainWindow(QMainWindow):
         self._update_counts(0, 0)
         self.table.setSortingEnabled(False)
         self._set_preview_status("Scanning…")
-        self._clear_inspector()
 
         self._scan_thread.started.connect(self._scan_worker.run)
         self._scan_worker.row_ready.connect(self._on_scan_row_ready)

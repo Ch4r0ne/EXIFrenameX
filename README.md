@@ -1,6 +1,6 @@
-# EXIFrenameX (Date Renamer Toolkit)
+# Date Renamer
 
-**EXIFrenameX** is a cross-platform **PyQt6 GUI** that renames photos and videos **in-place** using the **best available capture/creation timestamp**.  
+**Date Renamer** is a cross-platform **PyQt6 GUI** that renames photos and videos **in-place** using the **best available capture/creation timestamp**.  
 It prioritizes **ExifTool** (most reliable across formats), then falls back to sidecars (XMP / Google Takeout JSON), classic EXIF readers, MediaInfo, filename parsing, and optionally filesystem timestamps.
 
 ---
@@ -104,10 +104,10 @@ Want to contribute?
 
 **Key dependencies:**  
 ```powershell
-# Windows (onefile) – EXIFrenameX + Assets inkl. exiftool.exe (mit Subordnern)
+# Windows (onefile) – Date Renamer + Assets inkl. exiftool.exe (mit Subordnern)
 py -m PyInstaller --noconfirm --clean --windowed --onefile `
-  --name "EXIFrenameX" `
-  --icon ".\assets\EXIFrenameX.ico" `
+  --name "DateRenamer" `
+  --icon ".\assets\DateRenamer.ico" `
   --add-data ".\assets;assets" `
   --add-data ".\assets\exiftool;assets\exiftool" `
   --collect-all "PyQt6" `
@@ -120,7 +120,7 @@ py -m PyInstaller --noconfirm --clean --windowed --onefile `
   --hidden-import "pymediainfo" `
   --hidden-import "exifread" `
   --hidden-import "exiftool_wrapper" `
-  ".\EXIFrenameX.py"
+  ".\date-renamer.py"
 ```
 
 ---
